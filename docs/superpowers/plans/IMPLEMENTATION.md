@@ -131,19 +131,29 @@ Goal: given a model and a token count, the exact cost — or an explicit refusal
 
 Goal: a key authenticates in one round-trip and revocation takes effect at once.
 
-- [ ] Key generation `cl_<32 bytes base62>`, crypto/rand
-- [ ] SHA-256 hashing, unique index, `key_prefix` for display
-- [ ] Master key from env, constant-time comparison
-- [ ] `POST /admin/keys` — secret returned exactly once
-- [ ] `GET /admin/keys` — never returns secrets
-- [ ] `PATCH /admin/keys/{id}` — budget, allowed_models, disconnect_policy
-- [ ] PATCH validates `drain_timeout <= provider_timeout` per key
-- [ ] `DELETE /admin/keys/{id}` — soft revoke
-- [ ] Scope type: repository forces `WHERE key_id` for a virtual key
-- [ ] TEST: secret is not retrievable after creation
-- [ ] TEST: revoked key rejected immediately, no cache window
-- [ ] TEST: a virtual key cannot read another key's usage
-- [ ] TEST: scope parameter is non-optional (compile-time)
+- [x] Key generation `cl_<32 bytes base62>`, crypto/rand
+- [x] SHA-256 hashing, unique index, `key_prefix` for display
+- [x] Master key from env, constant-time comparison
+- [x] `POST /admin/keys` — secret returned exactly once
+- [x] `GET /admin/keys` — never returns secrets
+- [x] `PATCH /admin/keys/{id}` — budget, allowed_models, disconnect_policy
+- [x] PATCH validates `drain_timeout <= provider_timeout` per key
+- [x] `DELETE /admin/keys/{id}` — soft revoke
+- [x] Scope type: repository forces `WHERE key_id` for a virtual key
+- [x] TEST: secret is not retrievable after creation
+- [x] TEST: revoked key visible immediately, no cache window (keys are never cached)
+- [x] TEST: a virtual key cannot read another key's usage
+- [x] TEST: scope parameter is non-optional (compile-time)
+- [x] `obs.Secret` type: redacted in %v, %q, %#v, JSON and slog; Expose() to read
+- [x] TEST: no rendering of Config leaks the master key or the DB password
+- [x] TEST: 10,000 generated keys are unique, well-formed and unbiased
+- [x] Credentials in the query string rejected with 400, never logged or echoed
+- [x] Key creation is one transaction: virtual_keys + key_budgets
+- [x] PATCH distinguishes absent, null and empty for every nullable field
+- [x] DELETE is idempotent (204 on repeat, not 404)
+- [x] metadata is a flat string map, capped at 4 KB, validated on the way in
+- [x] Test harness moved to `internal/storetest` so testcontainers stays out
+      of the production binary
 - [ ] REVIEW CHECKPOINT — wait for approval
 
 ## F4 — Budget: reserve, settle, reaper

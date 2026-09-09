@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/DiegohNY/costlane/internal/obs"
 )
 
 // Lookup reports the value of an environment variable and whether it was set.
@@ -31,8 +33,10 @@ const (
 // There are no cloud-specific dependencies: everything arrives as an
 // environment variable.
 type Config struct {
-	DatabaseURL string
-	MasterKey   string
+	// Both carry credentials, so both are Secret: the type keeps them out
+	// of logs, error messages and JSON regardless of who formats them.
+	DatabaseURL obs.Secret
+	MasterKey   obs.Secret
 
 	ListenAddr  string
 	MetricsAddr string
@@ -75,11 +79,11 @@ func LoadFrom(look Lookup) (*Config, error) {
 
 	cfg := &Config{}
 
-	cfg.DatabaseURL = requireString(look, "COSTLANE_DATABASE_URL", fail)
-	cfg.MasterKey = requireString(look, "COSTLANE_MASTER_KEY", fail)
-	if cfg.MasterKey != "" && len(cfg.MasterKey) < minMasterKeyLen {
+	cfg.DatabaseURL = obs.Secret(requireString(look, "COSTLANE_DATABASE_URL", fail))
+	cfg.MasterKey = obs.Secret(requireString(look, "COSTLANE_MASTER_KEY", fail))
+	if cfg.MasterKey.IsSet() && len(cfg.MasterKey.Expose()) < minMasterKeyLen {
 		fail("COSTLANE_MASTER_KEY must be at least %d characters, got %d",
-			minMasterKeyLen, len(cfg.MasterKey))
+			minMasterKeyLen, len(cfg.MasterKey.Expose()))
 	}
 
 	cfg.ListenAddr = optString(look, "COSTLANE_LISTEN_ADDR", ":8080")
@@ -138,8 +142,11 @@ func LoadFrom(look Lookup) (*Config, error) {
 // String renders the configuration for logging with every secret redacted.
 func (c *Config) String() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "database_url=%s ", redactURL(c.DatabaseURL))
-	fmt.Fprintf(&b, "master_key=%s ", redact(c.MasterKey))
+	// DatabaseURL is a Secret, so %v already redacts it; the shape of the
+	// connection string is still useful when debugging a wrong host, so
+	// render that separately from the credentials it carries.
+	fmt.Fprintf(&b, "database_url=%s ", redactURL(c.DatabaseURL.Expose()))
+	fmt.Fprintf(&b, "master_key=%v ", c.MasterKey)
 	fmt.Fprintf(&b, "listen=%s metrics=%s ", c.ListenAddr, c.MetricsAddr)
 	fmt.Fprintf(&b, "provider_timeout=%s drain_timeout=%s reservation_ttl=%s ",
 		c.ProviderTimeout, c.DrainTimeout, c.ReservationTTL)
@@ -152,25 +159,18 @@ func (c *Config) String() string {
 	return b.String()
 }
 
-func redact(s string) string {
-	if s == "" {
-		return "(unset)"
-	}
-	return "(redacted)"
-}
-
 // redactURL keeps the shape of a connection string without its credentials,
 // which is enough to debug a wrong host and never enough to leak a password.
 func redactURL(raw string) string {
 	if raw == "" {
-		return "(unset)"
+		return obs.Unset
 	}
 	scheme, rest, found := strings.Cut(raw, "://")
 	if !found {
-		return "(redacted)"
+		return obs.Redacted
 	}
 	if _, after, hasCreds := strings.Cut(rest, "@"); hasCreds {
-		return scheme + "://(redacted)@" + after
+		return scheme + "://" + obs.Redacted + "@" + after
 	}
 	return scheme + "://" + rest
 }

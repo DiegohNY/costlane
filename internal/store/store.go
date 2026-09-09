@@ -173,22 +173,22 @@ func withMigrationLock(ctx context.Context, pool *pgxpool.Pool, fn func(*goose.P
 	return nil
 }
 
-// quoteIdent quotes an identifier for use in DDL, where placeholders are not
-// accepted.
-func quoteIdent(name string) string {
+// QuoteIdent quotes an identifier for use in DDL, where placeholders are not
+// accepted. Exported for the test harness, which creates a database per test.
+func QuoteIdent(name string) string {
 	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
 }
 
-// uniqueDBName produces a collision-free database name for a test.
-func uniqueDBName() string {
+// UniqueDBName produces a collision-free database name for a test.
+func UniqueDBName() string {
 	var b [8]byte
 	_, _ = rand.Read(b[:])
 	return "costlane_test_" + hex.EncodeToString(b[:])
 }
 
-// replaceDBName rewrites the database portion of a DSN, so tests can reuse
+// ReplaceDBName rewrites the database portion of a DSN, so tests can reuse
 // one container across many databases.
-func replaceDBName(dsn, name string) string {
+func ReplaceDBName(dsn, name string) string {
 	u, err := url.Parse(dsn)
 	if err != nil {
 		return dsn
