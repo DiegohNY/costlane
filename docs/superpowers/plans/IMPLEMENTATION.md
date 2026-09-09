@@ -13,8 +13,8 @@ Legend: `[ ]` todo · `[x]` done · `[~]` in progress · `[!]` blocked
 
 Goal: an empty but fully wired repository where a red test blocks a merge.
 
-- [ ] `git init`, `go.mod` (module `github.com/DiegohNY/costlane`, go 1.27)
-- [ ] Apache-2.0 `LICENSE`, `NOTICE`
+- [x] `git init`, `go.mod` (module `github.com/DiegohNY/costlane`, go 1.27)
+- [x] Apache-2.0 `LICENSE` (no NOTICE: no third-party attributions yet)
 - [ ] Package skeleton per spec §3, each with a doc.go stating its purpose
 - [ ] `internal/config`: env to struct, no defaults hidden in code
 - [ ] Boot validation: `drain_timeout <= provider_timeout`; `TTL >= provider_timeout + drain_timeout + margin`
@@ -24,7 +24,11 @@ Goal: an empty but fully wired repository where a red test blocks a merge.
 - [ ] CI: `go test ./... -race`
 - [ ] CI: build + docker build
 - [ ] `Dockerfile`, distroless base, non-root user
-- [ ] README skeleton with the agreed tagline
+- [x] README skeleton with the agreed tagline
+- [x] `.gitignore` (Go, .env*, *.pem, .DS_Store) + manual secret scan of history
+- [x] Public repo `DiegohNY/costlane` created and pushed
+- [x] Branch protection on main (PR required, no force push, no deletion)
+- [ ] Attach CI jobs as required status checks (once they have run once)
 - [ ] VERIFY: a deliberately failing test blocks the merge
 - [ ] REVIEW CHECKPOINT — wait for approval
 
