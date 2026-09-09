@@ -1,6 +1,6 @@
 # Binaries
-costlane
-fakeprovider
+/costlane
+/fakeprovider
 *.exe
 *.dll
 *.so
