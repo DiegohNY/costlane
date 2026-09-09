@@ -104,7 +104,7 @@ func runNonStream(b *testing.B, url, auth string) {
 		if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 			b.Fatalf("reading the body: %v", err)
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			b.Fatalf("status = %d", resp.StatusCode)
 		}
@@ -149,7 +149,7 @@ func runStream(b *testing.B, url, auth string) {
 			b.Fatalf("requesting: %v", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			b.Fatalf("status = %d", resp.StatusCode)
 		}
 
@@ -167,7 +167,7 @@ func runStream(b *testing.B, url, auth string) {
 			}
 			chunks++
 		}
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if chunks == 0 {
 			b.Fatal("the stream carried no data frames")
 		}

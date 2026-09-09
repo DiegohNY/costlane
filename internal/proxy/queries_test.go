@@ -71,15 +71,19 @@ func normaliseSQL(sql string) string {
 }
 
 // The architecture claim in the README, measured rather than asserted: one
-// statement stands between an accepted request and the provider call, and it
-// is the reserve. Everything else — the settle, the remaining-budget read —
-// happens after the provider has already answered, and the usage record
-// leaves the path entirely.
+// transaction stands between an accepted request and the provider call, and
+// it is the reserve — an UPDATE that carries every check as a predicate, plus
+// the INSERT that records the reservation. Nothing else is asked of the
+// database before the request is forwarded.
 //
-// This test exists because the claim is the product's whole latency
-// argument. A future change that adds a lookup before the upstream call is
-// free to do so, but not silently.
-func TestHappyPathMakesOneDatabaseRoundTripBeforeTheProvider(t *testing.T) {
+// Everything after — the settle, the remaining-budget read — happens once the
+// provider has already answered, and in production the usage record leaves
+// the path entirely through a bounded buffer.
+//
+// This test exists because the claim is the product's whole latency argument.
+// A future change that adds a lookup before the upstream call is free to do
+// so, but not silently.
+func TestOnlyTheReserveRunsBeforeTheProviderCall(t *testing.T) {
 	counter := &queryCounter{}
 	db := storetest.NewTracedDB(t, counter)
 	h := newHarnessOn(t, "100", db)
@@ -99,19 +103,23 @@ func TestHappyPathMakesOneDatabaseRoundTripBeforeTheProvider(t *testing.T) {
 
 	statements := counter.work()
 
-	// The reserve is one statement inside one transaction, so pgx reports
-	// the UPDATE and the INSERT that records the reservation. What matters
-	// is that nothing precedes them: no key lookup, no budget read, no
-	// model check. Authentication, the model allowlist, the window
-	// rotation and the limit are all predicates inside that UPDATE.
-	if len(statements) == 0 {
-		t.Fatal("no statements were traced; the tracer is not attached")
+	// The reserve is one UPDATE carrying every check as a predicate, plus
+	// the INSERT that records the reservation. What matters is that nothing
+	// precedes or joins them: no key lookup, no budget read, no model
+	// check. Authentication, the model allowlist, the window rotation and
+	// the limit are all inside that UPDATE.
+	if len(statements) < 2 {
+		t.Fatalf("only %d statements were traced; the tracer is not attached",
+			len(statements))
 	}
-	if first := statements[0]; !strings.HasPrefix(first, "UPDATE key_budgets") {
-		t.Errorf("the first statement of a request is %q, want the reserve "+
-			"(UPDATE key_budgets). Something now reads the database before "+
-			"the request is authorised, which is the round trip the design "+
-			"exists to avoid.", first)
+	wantPrefix := []string{"UPDATE key_budgets", "INSERT INTO"}
+	for i, want := range wantPrefix {
+		if !strings.HasPrefix(statements[i], want) {
+			t.Errorf("statement %d of a request is %q, want %q. The only thing "+
+				"between an accepted request and the provider call is the "+
+				"reserve; anything else here is a round trip the design "+
+				"exists to avoid. Full path: %v", i, statements[i], want, statements)
+		}
 	}
 
 	// The whole path, for the record. This harness has no usage buffer, so

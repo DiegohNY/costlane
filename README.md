@@ -182,10 +182,6 @@ Stated plainly, because finding them yourself would be worse.
 
 ## Benchmarks
 
-_Figures pending: they are produced by the `bench` job on the pull request
-that introduces this section, and pasted here from its step summary before the
-release is tagged._
-
 ### Methodology
 
 Everything below is measured by the `bench` job in
@@ -219,20 +215,36 @@ authentication, pricing, the reserve, the settle and the accounting.
 
 | | p50 | p99 |
 |---|---|---|
-| Direct to provider | _pending_ | _pending_ |
-| Through costlane | _pending_ | _pending_ |
-| **Overhead** | _pending_ | _pending_ |
+| Direct to provider | 0.087 ms | 0.187 ms |
+| Through costlane | 2.05 ms | 2.40 ms |
+| **Overhead** | **+1.96 ms** | **+2.21 ms** |
+
+Nearly all of that is Postgres. The gateway does no meaningful computation on
+this path; it does a reserve (0.47 ms contended, below), a settle (0.62 ms), a
+budget read for the response header, and — in this harness only — a synchronous
+usage insert. Production hands that last one to a bounded buffer, so the
+figures above are an upper bound.
+
+If two milliseconds against a provider call that takes hundreds is not a trade
+you want, the honest answer is that this product is not for you: the cost is
+the price of a budget that cannot be exceeded, and it is paid in the database,
+not in the code.
 
 ### 2. Streaming overhead
 
 Time to first token, and the per-chunk cost of parsing every frame on the way
-past.
+past. 200 chunks per response.
 
 | | TTFT p50 | TTFT p99 | Per chunk p50 | Per chunk p99 |
 |---|---|---|---|---|
-| Direct to provider | _pending_ | _pending_ | _pending_ | _pending_ |
-| Through costlane | _pending_ | _pending_ | _pending_ | _pending_ |
-| **Overhead** | _pending_ | _pending_ | _pending_ | _pending_ |
+| Direct to provider | 0.119 ms | 0.307 ms | 0.0080 ms | 0.0130 ms |
+| Through costlane | 0.998 ms | 2.15 ms | 0.0210 ms | 0.0252 ms |
+| **Overhead** | **+0.88 ms** | **+1.85 ms** | **+13 µs** | **+12 µs** |
+
+The per-chunk figure is the one that scales: thirteen microseconds to read a
+frame, count its tokens and write it on. A two-thousand-chunk completion pays
+about 26 ms for exact accounting across the whole stream. The time to first
+token is dominated by the reserve, which happens once.
 
 ### 3. Reserve under contention
 
@@ -241,24 +253,39 @@ across sixty-four keys. The gap is Postgres serialising updates to a single
 row, which is the cost the design accepts in exchange for a budget that cannot
 be exceeded.
 
-| | ns/op |
-|---|---|
-| One key, contended | _pending_ |
-| Sixty-four keys, uncontended | _pending_ |
-| Settle | _pending_ |
+| | ns/op | |
+|---|---|---|
+| Reserve, one key, contended | 465 µs | the worst case: every request on one budget |
+| Reserve, 64 keys, uncontended | 268 µs | the same work with no row contention |
+| Settle | 620 µs | two statements, one transaction |
+
+Contention costs about 200 µs per request. That is the whole price of the
+guarantee, and it is charged only to keys actually being hammered in parallel.
 
 ### The shape behind the numbers
 
-**One database round trip stands between an accepted request and the provider
-call.** Authentication, the model allowlist, the monthly window rotation and
-the budget check are all predicates inside the single statement that takes the
-reservation. The settle and the remaining-budget read happen after the provider
-has already answered; the usage record leaves the request path entirely,
-through a bounded buffer.
+**One transaction stands between an accepted request and the provider call,
+and it is the reserve.** Authentication, the model allowlist, the monthly
+window rotation and the budget check are all predicates inside its first
+statement; the second records the reservation. Nothing else is asked of the
+database before the request is forwarded. The settle and the remaining-budget
+read happen after the provider has already answered, and the usage record
+leaves the request path entirely through a bounded buffer.
 
 That is not an assertion — it is
-[a test that counts the statements a request issues](internal/proxy/queries_test.go)
-and fails if anything is added in front of the reserve.
+[a test that traces the statements a request issues](internal/proxy/queries_test.go)
+and fails if anything is added in front of the reserve. What it observes today:
+
+```
+happy path:   UPDATE key_budgets → INSERT INTO budget_reservations   (the reserve)
+              ─── provider call ───
+              UPDATE budget_reservations → UPDATE key_budgets        (the settle)
+              SELECT ...                                             (remaining budget)
+
+refusal:      UPDATE key_budgets → SELECT vk.revoked_at, ...
+              (the refusal is the reserve matching no rows; the second query
+               runs only to say which reason, and only on this path)
+```
 
 ## Documentation
 

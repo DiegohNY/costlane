@@ -337,7 +337,7 @@ Goal: the numbers are published and the first command works for free.
 - [x] benchstat comparison posted to the PR step summary
 - [x] CI benchmark gate at >100% regression only
 - [x] Measurement run on stated hardware, by a CI job anyone can read
-- [ ] p50/p99 figures in the README, with methodology
+- [x] p50/p99 figures in the README, with methodology
 - [x] `docker-compose.yml`: gateway + Postgres + fakeprovider
 - [ ] VERIFY: `docker compose up` yields a working gateway with no real keys
 - [x] README: quickstart, configuration, API, cost model

@@ -29,9 +29,10 @@ row, the second blocks and then re-evaluates its predicate against the
 committed value. See [ADR 0004](0004-explicit-read-committed.md), on which
 that behaviour depends.
 
-**Latency.** It leaves exactly one database round trip between an accepted
-request and the provider call. There is a test that counts the statements a
-request issues and fails if anything is added in front of the reserve.
+**Latency.** It leaves exactly one transaction between an accepted request and
+the provider call — the `UPDATE` that carries every check, and the `INSERT`
+that records the reservation. There is a test that traces the statements a
+request issues and fails if anything is added in front of them.
 
 ## Alternatives rejected
 

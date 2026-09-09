@@ -211,7 +211,7 @@ func TestStreamingCountsMatchTheProviderExactly(t *testing.T) {
 			if err != nil {
 				t.Fatalf("streaming from %s: %v", tgt.name, err)
 			}
-			defer stream.Body.Close()
+			defer func() { _ = stream.Body.Close() }()
 
 			// The raw upstream bytes are kept so the provider's own final
 			// usage event can be read independently of our accumulator.
@@ -297,7 +297,7 @@ func TestCancellingMidStreamStopsTheUpstream(t *testing.T) {
 			if err != nil {
 				t.Fatalf("streaming from %s: %v", tgt.name, err)
 			}
-			defer stream.Body.Close()
+			defer func() { _ = stream.Body.Close() }()
 
 			// Read a handful of chunks, then leave, exactly as a client
 			// closing its connection would.
