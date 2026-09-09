@@ -30,7 +30,7 @@ jobs:
         with:
           # Pinned: a new linter release must be an intentional upgrade,
           # not a build that starts failing on its own.
-          version: v2.6.1
+          version: v2.13.2
 
   test:
     name: test
