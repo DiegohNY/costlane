@@ -71,6 +71,16 @@ type Config struct {
 	// indefinitely.
 	StreamWriteTimeout time.Duration
 
+	// The usage buffer's shape. Capacity bounds it; past that a write goes
+	// synchronously rather than being dropped.
+	UsageBufferSize    int
+	UsageBatchSize     int
+	UsageFlushInterval time.Duration
+
+	// DrainDelay is how long the process reports unready before it stops
+	// accepting, so a load balancer has time to notice.
+	DrainDelay time.Duration
+
 	// Provider credentials. Absent ones simply leave that provider
 	// unconfigured, so a deployment can run with one.
 	OpenAIKey        obs.Secret
@@ -132,6 +142,10 @@ func LoadFrom(look Lookup) (*Config, error) {
 
 	cfg.MaxBodyBytes = int64(positiveInt(look, "COSTLANE_MAX_BODY_BYTES", 10<<20, fail))
 	cfg.StreamWriteTimeout = duration(look, "COSTLANE_STREAM_WRITE_TIMEOUT", 30*time.Second, fail)
+	cfg.UsageBufferSize = positiveInt(look, "COSTLANE_USAGE_BUFFER_SIZE", 10_000, fail)
+	cfg.UsageBatchSize = positiveInt(look, "COSTLANE_USAGE_BATCH_SIZE", 500, fail)
+	cfg.UsageFlushInterval = duration(look, "COSTLANE_USAGE_FLUSH_INTERVAL", 200*time.Millisecond, fail)
+	cfg.DrainDelay = duration(look, "COSTLANE_DRAIN_DELAY", 5*time.Second, fail)
 
 	cfg.OpenAIKey = obs.Secret(optString(look, "COSTLANE_OPENAI_API_KEY", ""))
 	cfg.OpenAIBaseURL = optString(look, "COSTLANE_OPENAI_BASE_URL", "https://api.openai.com")

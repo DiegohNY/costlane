@@ -216,7 +216,7 @@ func (h *Handler) settleStream(r *http.Request, in streamInput,
 		record.CostUSD = &c
 	}
 
-	if err := h.opts.DB.WriteUsageRecord(ctx, record); err != nil && h.opts.Logger != nil {
+	if err := h.recordTo(ctx, record); err != nil && h.opts.Logger != nil {
 		h.opts.Logger.Error("writing a stream usage record failed",
 			"error", err, "request_id", in.requestID)
 	}

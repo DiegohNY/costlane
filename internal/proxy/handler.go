@@ -43,6 +43,19 @@ type Options struct {
 	MaxBodyBytes     int64
 	DefaultMaxTokens int
 
+	// Redactor removes this process's own credentials from text it did not
+	// write. The pattern list catches known formats; this catches the rest.
+	Redactor *obs.Redactor
+
+	// Usage takes records off the request path. Nil writes them
+	// synchronously, which is what the tests do.
+	Usage UsageSink
+
+	// LogPrompts stores request and response bodies alongside a usage
+	// record. It is off by default: a prompt is a copy of a customer's
+	// data, and it should exist only while someone is debugging.
+	LogPrompts bool
+
 	ProviderTimeout     time.Duration
 	DrainTimeout        time.Duration
 	StreamWriteTimeout  time.Duration
@@ -57,6 +70,11 @@ type Options struct {
 	ReservationTTL            time.Duration
 }
 
+// UsageSink accepts a finished record.
+type UsageSink interface {
+	Add(ctx context.Context, record usage.Record) error
+}
+
 // Logger is the subset of structured logging the proxy needs.
 type Logger interface {
 	Error(msg string, args ...any)
@@ -64,9 +82,13 @@ type Logger interface {
 }
 
 // Metrics receives what a request did.
+//
+// Token counts arrive as a plain map rather than a pricing.Counts, so the
+// metrics package does not have to know about pricing: an observer should
+// depend on as little of the thing it observes as possible.
 type Metrics interface {
 	RequestCompleted(model, providerName, status string, d time.Duration)
-	TokensCounted(model string, counts pricing.Counts)
+	TokensCounted(model string, counts map[string]int64)
 	Unpriced(model string)
 	ModelMismatch(requested, served string)
 }
@@ -284,13 +306,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		providerRequestID: out.ProviderRequestID, finishReason: out.FinishReason,
 		statusCode: out.StatusCode, parseErrors: out.ParseErrors,
 		degraded: out.Degraded, latency: time.Since(started),
+		requestBody: body, responseBody: out.Body,
 	})
 
 	h.writeResponse(r.Context(), w, out, cost, costResult, res.KeyID)
 
 	if h.opts.Metrics != nil {
 		h.opts.Metrics.RequestCompleted(servedModel, upstream.Name(), "200", time.Since(started))
-		h.opts.Metrics.TokensCounted(servedModel, out.Counts)
+		h.opts.Metrics.TokensCounted(servedModel, countsAsMap(out.Counts))
 		if costResult.Unpriced {
 			h.opts.Metrics.Unpriced(servedModel)
 		}
@@ -337,6 +360,8 @@ type usageInput struct {
 	parseErrors       int
 	degraded          bool
 	latency           time.Duration
+	requestBody       []byte
+	responseBody      []byte
 }
 
 // recordUsage writes the accounting for a completed request.
@@ -373,10 +398,47 @@ func (h *Handler) recordUsage(ctx context.Context, in usageInput) {
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
 	defer cancel()
 
-	if err := h.opts.DB.WriteUsageRecord(writeCtx, record); err != nil && h.opts.Logger != nil {
+	if err := h.recordTo(writeCtx, record); err != nil && h.opts.Logger != nil {
 		h.opts.Logger.Error("writing the usage record failed",
 			"error", err, "request_id", in.requestID)
 	}
+
+	h.storePayload(writeCtx, record.ID, in.requestBody, in.responseBody)
+}
+
+// storePayload keeps the bodies when prompt logging is enabled.
+//
+// They go to a table of their own so that it can be dropped, or given a far
+// shorter retention, without touching the accounting — and a failure here is
+// logged rather than returned, because losing a debugging aid must not fail a
+// request that already succeeded.
+func (h *Handler) storePayload(ctx context.Context, recordID uuid.UUID,
+	request, response []byte) {
+	if !h.opts.LogPrompts || len(request) == 0 {
+		return
+	}
+	if err := h.opts.DB.WritePayload(ctx, recordID, request, response); err != nil &&
+		h.opts.Logger != nil {
+		h.opts.Logger.Error("storing a request payload failed", "error", err)
+	}
+}
+
+// recordTo hands a record to the buffer, or writes it directly when there is
+// none.
+func (h *Handler) recordTo(ctx context.Context, record usage.Record) error {
+	if h.opts.Usage != nil {
+		return h.opts.Usage.Add(ctx, record)
+	}
+	return h.opts.DB.WriteUsageRecord(ctx, record)
+}
+
+// countsAsMap converts billing classes to plain strings for an observer.
+func countsAsMap(counts pricing.Counts) map[string]int64 {
+	out := make(map[string]int64, len(counts))
+	for kind, n := range counts {
+		out[string(kind)] = n
+	}
+	return out
 }
 
 func (h *Handler) cost(table *pricing.Table, model, providerName string,
@@ -458,7 +520,7 @@ func (h *Handler) writeUpstreamError(w http.ResponseWriter, err error, providerN
 		w.Header().Set("Retry-After", upstream.RetryAfter)
 	}
 
-	body := obs.RedactSecrets(upstream.Body)
+	body := h.opts.Redactor.Redact(upstream.Body)
 	if upstream.Native {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")

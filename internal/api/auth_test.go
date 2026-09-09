@@ -1,4 +1,4 @@
-package api
+package api_test
 
 import (
 	"net/http"
@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"github.com/DiegohNY/costlane/internal/obs"
+
+	"github.com/DiegohNY/costlane/internal/api"
 )
 
 // The defect found in a surveyed project: credentials accepted from the
@@ -21,7 +23,7 @@ func TestCredentialsInQueryStringAreRejected(t *testing.T) {
 				"/v1/chat/completions?"+param+"="+leaked, nil)
 			rec := httptest.NewRecorder()
 
-			RejectQueryCredentials(noopHandler()).ServeHTTP(rec, req)
+			api.RejectQueryCredentials(noopHandler()).ServeHTTP(rec, req)
 
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400", rec.Code)
@@ -46,7 +48,7 @@ func TestHarmlessQueryParametersPassThrough(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/usage?group_by=model&limit=50", nil)
 	rec := httptest.NewRecorder()
 
-	RejectQueryCredentials(noopHandler()).ServeHTTP(rec, req)
+	api.RejectQueryCredentials(noopHandler()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("status = %d, want 200: ordinary parameters are not credentials", rec.Code)
@@ -64,7 +66,7 @@ func TestQueryCredentialDetectionIsCaseInsensitive(t *testing.T) {
 		t.Run(raw, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, raw, nil)
 			rec := httptest.NewRecorder()
-			RejectQueryCredentials(noopHandler()).ServeHTTP(rec, req)
+			api.RejectQueryCredentials(noopHandler()).ServeHTTP(rec, req)
 			if rec.Code != http.StatusBadRequest {
 				t.Errorf("status = %d, want 400 for %q", rec.Code, raw)
 			}
@@ -78,7 +80,7 @@ func TestBearerTokenIsExtracted(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("Authorization", "Bearer cl_the-key")
 
-	got, ok := BearerToken(req)
+	got, ok := api.BearerToken(req)
 	if !ok {
 		t.Fatal("a well-formed bearer header must be accepted")
 	}
@@ -104,7 +106,7 @@ func TestMalformedAuthorizationHeadersAreRejected(t *testing.T) {
 			if header != "" {
 				req.Header.Set("Authorization", header)
 			}
-			if _, ok := BearerToken(req); ok {
+			if _, ok := api.BearerToken(req); ok {
 				t.Errorf("header %q must not yield a token", header)
 			}
 		})
@@ -116,7 +118,7 @@ func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
 	for _, scheme := range []string{"Bearer", "bearer", "BEARER"} {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		req.Header.Set("Authorization", scheme+" cl_the-key")
-		if _, ok := BearerToken(req); !ok {
+		if _, ok := api.BearerToken(req); !ok {
 			t.Errorf("scheme %q must be accepted", scheme)
 		}
 	}

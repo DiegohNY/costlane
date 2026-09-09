@@ -2,6 +2,7 @@
 package obs
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -102,6 +103,49 @@ func RedactSecrets(b []byte) []byte {
 	out := b
 	for _, pattern := range secretPatterns {
 		out = pattern.ReplaceAll(out, []byte(Redacted))
+	}
+	return out
+}
+
+// Redactor removes known credentials from text that we did not write.
+//
+// The pattern list above covers the formats providers use today, which is
+// exactly its weakness: a credential in a shape nobody anticipated — a new
+// provider, an internal token, a customer's own key echoed back — passes
+// straight through. So a Redactor also carries the specific values this
+// process holds, and removes those verbatim. Knowing our own secrets is a
+// defence that does not depend on guessing their shape.
+type Redactor struct {
+	// literals are the exact credentials this process was configured with.
+	literals [][]byte
+}
+
+// NewRedactor builds a redactor that knows the given secrets.
+//
+// Short values are ignored: redacting a two-character "key" would mangle
+// every message it happened to appear in, and a credential that short is not
+// one worth protecting.
+func NewRedactor(secrets ...Secret) *Redactor {
+	const minLiteralLength = 8
+
+	r := &Redactor{}
+	for _, s := range secrets {
+		value := s.Expose()
+		if len(value) >= minLiteralLength {
+			r.literals = append(r.literals, []byte(value))
+		}
+	}
+	return r
+}
+
+// Redact removes both the known patterns and this process's own secrets.
+func (r *Redactor) Redact(b []byte) []byte {
+	out := RedactSecrets(b)
+	if r == nil {
+		return out
+	}
+	for _, literal := range r.literals {
+		out = bytes.ReplaceAll(out, literal, []byte(Redacted))
 	}
 	return out
 }

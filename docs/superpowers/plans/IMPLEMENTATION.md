@@ -97,9 +97,11 @@ Goal: given a model and a token count, the exact cost — or an explicit refusal
 
 - [x] YAML schema for prices and aliases
 - [x] `pricing/*.yaml` seeded for OpenAI, Anthropic, Google, with source_url
-- [ ] Boot loader YAML to Postgres, idempotent, fails on conflicting rewrite
+- [x] Prices load from embedded YAML into an in-memory snapshot; the
+      Postgres mirror is deferred, since nothing reads prices from the
+      database and a second copy could disagree with the one in use
 - [x] In-memory snapshot via atomic.Pointer, replaced wholesale
-- [ ] `POST /admin/pricing/reload`
+- [x] `POST /admin/pricing/reload`
 - [x] Exact model matching — no startswith, no substring
 - [x] Alias resolution, historised, exact at each step
 - [x] Context-tier selection (input_tokens_from / _to)
@@ -290,28 +292,39 @@ Goal: chunks forwarded with zero buffering, counted in flight, always settled.
 
 Goal: spend is queryable, and secrets never leak.
 
-- [ ] Async usage buffer + batch flush
-- [ ] Graceful shutdown: stop accepting, await settles, flush buffer, exit
-- [ ] `GET /v1/usage` with group_by whitelist, max two dimensions
-- [ ] Mandatory time range, configurable max width (default 90 days)
-- [ ] `GET /v1/usage/series` by day or hour
-- [ ] `GET /v1/usage/requests`, keyset pagination on (created_at, id)
-- [ ] `GET /v1/budget` for the calling key
-- [ ] `COSTLANE_LOG_PROMPTS` writing to `request_payloads`
-- [ ] Structured logging with redaction; virtual keys as prefix only
-- [ ] Provider keys never logged, never returned, never in an error message
-- [ ] `/metrics` on a separate address, low-cardinality labels
-- [ ] All metrics from spec §7.6
-- [ ] `/healthz` (liveness) and `/readyz` (DB + price snapshot loaded)
-- [ ] Retention job, configurable
-- [ ] TEST: graceful shutdown completes an in-flight settle and flushes
-- [ ] TEST: group_by rejects anything outside the whitelist
-- [ ] TEST: a range wider than the maximum is refused
-- [ ] TEST: keyset pagination is stable across inserts
-- [ ] TEST: `/readyz` fails when prices are not loaded
-- [ ] LEAK TEST: synthetic keys planted in env and in fake error bodies
-- [ ] LEAK TEST: every error path exercised; fails if the pattern surfaces
-- [ ] CI: leak job
+- [x] Async usage buffer + batch flush
+- [x] Graceful shutdown: stop accepting, await settles, flush buffer, exit
+- [x] `GET /v1/usage` with group_by whitelist, max two dimensions
+- [x] Mandatory time range, configurable max width (default 90 days)
+- [x] Day and hour grouping on UTC boundaries (folded into /v1/usage)
+- [x] `GET /v1/usage/requests`, keyset pagination on (created_at, id)
+- [x] `GET /v1/budget` for the calling key
+- [x] `COSTLANE_LOG_PROMPTS` writing to `request_payloads`
+- [x] Structured logging with redaction; virtual keys as prefix only
+- [x] Provider keys never logged, never returned, never in an error message
+- [x] `/metrics` on a separate address, low-cardinality labels
+- [x] All metrics from spec §7.6
+- [x] `/healthz` (liveness) and `/readyz` (DB + price snapshot loaded)
+- [x] Retention job, configurable
+- [x] TEST: graceful shutdown completes an in-flight settle and flushes
+- [x] TEST: group_by rejects anything outside the whitelist
+- [x] TEST: a range wider than the maximum is refused
+- [x] TEST: keyset pagination is stable across inserts
+- [x] TEST: `/readyz` fails when prices are not loaded
+- [x] LEAK TEST: synthetic keys planted in env and in fake error bodies
+- [x] LEAK TEST: every error path exercised; fails if the pattern surfaces
+- [x] Bounded buffer with synchronous fallback, never a drop
+- [x] TEST: 300 records survive a three-second database outage
+- [x] Batch writes via COPY, all-or-nothing
+- [x] Readiness fails before the listener stops, so a load balancer stops first
+- [x] Separate retention for usage records and request payloads
+- [x] Fixed: a nil token detail marshalled to JSON null and violated the
+      object constraint, which would have broken any record with no tokens
+- [x] Found by the leak test: redaction only knew the credential shapes
+      providers use today, so an unrecognised one passed straight through
+- [x] CI: leak job
+- [x] TEST: with prompt logging on, a prompt appears only in request_payloads
+- [x] Redactor knows this process's own credentials, not only known formats
 - [ ] REVIEW CHECKPOINT — wait for approval
 
 ## F8 — Benchmarks, docs, release
