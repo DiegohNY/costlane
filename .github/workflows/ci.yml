@@ -215,3 +215,71 @@ jobs:
           fi
       - name: docker build
         run: docker build -t costlane:ci .
+
+  # The README's first promise is that the quickstart works with no
+  # credential and costs nothing. That promise is worth exactly as much as
+  # the last time someone ran it, so it runs here, as written.
+  quickstart:
+    name: quickstart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: docker compose up
+        run: docker compose up --build -d
+
+      - name: wait for readiness
+        run: |
+          for _ in $(seq 60); do
+            if curl -fsS localhost:8080/readyz >/dev/null 2>&1; then
+              echo "ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "the gateway never became ready"
+          docker compose logs
+          exit 1
+
+      - name: the liveness probe reports a version
+        run: |
+          curl -fsS localhost:8080/healthz | tee healthz.json
+          grep -q '"version"' healthz.json
+
+      # Exactly the commands in the README. If they change there, they have
+      # to change here, which is the point.
+      - name: mint a virtual key and spend against it
+        run: |
+          key=$(curl -fsS localhost:8080/admin/keys \
+            -H "Authorization: Bearer dev-master-key-not-for-production-0123456789" \
+            -H "Content-Type: application/json" \
+            -d '{"label":"demo","limit_usd":"5"}' | jq -r .key)
+          test -n "$key" && test "$key" != "null"
+
+          curl -fsS -D headers.txt -o body.json localhost:8080/v1/chat/completions \
+            -H "Authorization: Bearer $key" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"gpt-6-astra","messages":[{"role":"user","content":"hello"}]}'
+
+          cat headers.txt
+          grep -qi '^x-costlane-cost-usd:' headers.txt
+          grep -qi '^x-costlane-budget-remaining-usd:' headers.txt
+
+          # The usage record leaves the request path through a buffer, so it
+          # arrives shortly after the response rather than with it.
+          for _ in $(seq 15); do
+            curl -fsS "localhost:8080/v1/usage?group_by=model,day" \
+              -H "Authorization: Bearer $key" > usage.json
+            if grep -q 'gpt-6-astra' usage.json; then
+              cat usage.json; exit 0
+            fi
+            sleep 1
+          done
+          echo "the usage record never arrived:"; cat usage.json; exit 1
+
+      - name: show the logs when something failed
+        if: failure()
+        run: docker compose logs
+
+      - name: docker compose down
+        if: always()
+        run: docker compose down -v
