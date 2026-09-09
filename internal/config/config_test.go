@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -212,11 +213,11 @@ func TestRequiredValuesAreTrimmed(t *testing.T) {
 	env["COSTLANE_MASTER_KEY"] = "\ttest-master-key-at-least-32-chars-long  "
 
 	cfg := withEnv(t, env)
-	if strings.TrimSpace(cfg.DatabaseURL) != cfg.DatabaseURL {
-		t.Errorf("DatabaseURL retained whitespace: %q", cfg.DatabaseURL)
+	if got := cfg.DatabaseURL.Expose(); strings.TrimSpace(got) != got {
+		t.Errorf("DatabaseURL retained whitespace: %q", got)
 	}
-	if strings.TrimSpace(cfg.MasterKey) != cfg.MasterKey {
-		t.Errorf("MasterKey retained whitespace: %q", cfg.MasterKey)
+	if got := cfg.MasterKey.Expose(); strings.TrimSpace(got) != got {
+		t.Errorf("MasterKey retained whitespace: %q", got)
 	}
 }
 
@@ -264,5 +265,36 @@ func TestTierGuardAcceptsOne(t *testing.T) {
 	cfg := withEnv(t, env)
 	if cfg.TierGuard != 1 {
 		t.Errorf("TierGuard = %v, want 1 (guard only at the threshold itself)", cfg.TierGuard)
+	}
+}
+
+// The whole config is logged at startup and embedded in errors, so no
+// rendering of it may carry a credential. With Secret this holds by
+// construction rather than by remembering to redact each new field.
+func TestNoRenderingOfConfigLeaksCredentials(t *testing.T) {
+	env := baseEnv()
+	env["COSTLANE_MASTER_KEY"] = "sk-master-sentinel-value-32-chars-x"
+	env["COSTLANE_DATABASE_URL"] = "postgres://dbuser:dbpassword-sentinel@localhost:5432/costlane"
+	cfg := withEnv(t, env)
+
+	renderings := map[string]string{
+		"String()": cfg.String(),
+		"%v":       fmt.Sprintf("%v", cfg),
+		"%+v":      fmt.Sprintf("%+v", *cfg),
+		"%#v":      fmt.Sprintf("%#v", *cfg),
+		"error":    fmt.Errorf("startup failed: %+v", *cfg).Error(),
+	}
+	for _, secret := range []string{"sk-master-sentinel-value-32-chars-x", "dbpassword-sentinel"} {
+		for name, got := range renderings {
+			if strings.Contains(got, secret) {
+				t.Errorf("%s leaked %q:\n%s", name, secret, got)
+			}
+		}
+	}
+
+	// The host is still visible, because a redacted DSN that hides which
+	// database you failed to reach helps nobody.
+	if !strings.Contains(cfg.String(), "localhost:5432") {
+		t.Errorf("the connection target should stay visible: %s", cfg.String())
 	}
 }

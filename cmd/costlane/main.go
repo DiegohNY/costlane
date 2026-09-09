@@ -30,7 +30,7 @@ func run() error {
 	fmt.Printf("costlane: configuration valid: %s\n", cfg)
 
 	db, err := store.Open(ctx, store.Options{
-		DSN:                  cfg.DatabaseURL,
+		DSN:                  cfg.DatabaseURL.Expose(),
 		ReadStatementTimeout: cfg.ReadTimeout,
 	})
 	if err != nil {

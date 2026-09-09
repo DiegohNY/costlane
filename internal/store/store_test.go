@@ -1,4 +1,4 @@
-package store
+package store_test
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/DiegohNY/costlane/internal/store"
 )
 
 // Postgres error codes we assert on, so a test that expects a constraint
@@ -62,7 +64,7 @@ func TestMigrateUpFromEmpty(t *testing.T) {
 func TestMigrateIsIdempotent(t *testing.T) {
 	db := newTestDB(t)
 	// Running the same migrations again must be a no-op, not an error.
-	if err := Migrate(t.Context(), db.Pool()); err != nil {
+	if err := store.Migrate(t.Context(), db.Pool()); err != nil {
 		t.Fatalf("second migrate: %v", err)
 	}
 }
@@ -71,7 +73,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 // work. Exercise every one of them, then bring the schema back up.
 func TestMigrateDownThenUp(t *testing.T) {
 	db := newTestDB(t)
-	if err := MigrateDownAll(t.Context(), db.Pool()); err != nil {
+	if err := store.MigrateDownAll(t.Context(), db.Pool()); err != nil {
 		t.Fatalf("migrating down: %v", err)
 	}
 	var count int
@@ -86,7 +88,7 @@ func TestMigrateDownThenUp(t *testing.T) {
 	if count != 0 {
 		t.Errorf("%d tables survived the down migration", count)
 	}
-	if err := Migrate(t.Context(), db.Pool()); err != nil {
+	if err := store.Migrate(t.Context(), db.Pool()); err != nil {
 		t.Fatalf("migrating back up: %v", err)
 	}
 }
@@ -117,7 +119,7 @@ func TestConcurrentMigratorsSerialise(t *testing.T) {
 	// The advisory lock must make a second migrator wait rather than race.
 	errs := make(chan error, 4)
 	for range 4 {
-		go func() { errs <- Migrate(context.Background(), db.Pool()) }()
+		go func() { errs <- store.Migrate(context.Background(), db.Pool()) }()
 	}
 	for range 4 {
 		if err := <-errs; err != nil {
@@ -489,7 +491,7 @@ func TestReadPoolReportsItsTimeout(t *testing.T) {
 
 // --- helpers --------------------------------------------------------------
 
-func seedKey(t *testing.T, db *DB, hash []byte) uuid.UUID {
+func seedKey(t *testing.T, db *store.DB, hash []byte) uuid.UUID {
 	t.Helper()
 	if hash == nil {
 		hash = []byte(uuid.NewString() + "-padding-to-32ch")
@@ -532,7 +534,7 @@ type priceRow struct {
 	tier     string
 }
 
-func insertPrice(t *testing.T, db *DB, r priceRow) error {
+func insertPrice(t *testing.T, db *store.DB, r priceRow) error {
 	t.Helper()
 	if r.from == nil {
 		r.from = "2026-01-01T00:00:00Z"
