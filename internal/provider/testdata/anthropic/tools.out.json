@@ -1,0 +1,1 @@
+{"max_tokens":100,"messages":[{"role":"user","content":"weather?"}],"model":"claude-sonnet-5","tools":[{"description":"Look up the weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]},"name":"get_weather"}]}

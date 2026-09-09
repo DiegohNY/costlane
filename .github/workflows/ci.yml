@@ -46,7 +46,7 @@ jobs:
       - name: go test -race
         run: |
           go test -race -covermode=atomic -coverprofile=coverage.out \
-            $(go list ./... | grep -vE '/internal/(store|api|budget|storetest)')
+            $(go list ./... | grep -vE '/internal/(store|api|budget|proxy|storetest)')
       - name: coverage summary
         run: go tool cover -func=coverage.out | tail -1
 
@@ -61,7 +61,7 @@ jobs:
       # testcontainers starts its own pinned Postgres; the runner's docker
       # daemon is all it needs.
       - name: go test -race (integration)
-        run: go test ./internal/store/... ./internal/api/... ./internal/budget/... -race -timeout 20m -v
+        run: go test ./internal/store/... ./internal/api/... ./internal/budget/... ./internal/proxy/... -race -timeout 20m -v
 
   build:
     name: build

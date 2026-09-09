@@ -63,6 +63,17 @@ type Config struct {
 
 	LogPrompts    bool
 	MigrateOnBoot bool
+
+	MaxBodyBytes int64
+
+	// Provider credentials. Absent ones simply leave that provider
+	// unconfigured, so a deployment can run with one.
+	OpenAIKey        obs.Secret
+	OpenAIBaseURL    string
+	AnthropicKey     obs.Secret
+	AnthropicBaseURL string
+	GoogleKey        obs.Secret
+	GoogleBaseURL    string
 }
 
 // Load reads configuration from the process environment.
@@ -114,6 +125,15 @@ func LoadFrom(look Lookup) (*Config, error) {
 	cfg.TierGuard = fraction(look, "COSTLANE_TIER_GUARD", 0.75, fail)
 	cfg.DefaultMaxTokens = positiveInt(look, "COSTLANE_DEFAULT_MAX_TOKENS", 4096, fail)
 
+	cfg.MaxBodyBytes = int64(positiveInt(look, "COSTLANE_MAX_BODY_BYTES", 10<<20, fail))
+
+	cfg.OpenAIKey = obs.Secret(optString(look, "COSTLANE_OPENAI_API_KEY", ""))
+	cfg.OpenAIBaseURL = optString(look, "COSTLANE_OPENAI_BASE_URL", "https://api.openai.com")
+	cfg.AnthropicKey = obs.Secret(optString(look, "COSTLANE_ANTHROPIC_API_KEY", ""))
+	cfg.AnthropicBaseURL = optString(look, "COSTLANE_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+	cfg.GoogleKey = obs.Secret(optString(look, "COSTLANE_GOOGLE_API_KEY", ""))
+	cfg.GoogleBaseURL = optString(look, "COSTLANE_GOOGLE_BASE_URL", "https://generativelanguage.googleapis.com")
+
 	cfg.LogPrompts = boolean(look, "COSTLANE_LOG_PROMPTS", false, fail)
 	cfg.MigrateOnBoot = boolean(look, "COSTLANE_MIGRATE_ON_BOOT", true, fail)
 
@@ -155,6 +175,9 @@ func (c *Config) String() string {
 	fmt.Fprintf(&b, "default_max_tokens=%d tier_guard=%g ", c.DefaultMaxTokens, c.TierGuard)
 	fmt.Fprintf(&b, "reaper_interval=%s read_timeout=%s max_query_window=%s shutdown_timeout=%s ",
 		c.ReaperInterval, c.ReadTimeout, c.MaxQueryWindow, c.ShutdownTimeout)
+	fmt.Fprintf(&b, "max_body_bytes=%d ", c.MaxBodyBytes)
+	fmt.Fprintf(&b, "openai_key=%v anthropic_key=%v google_key=%v ",
+		c.OpenAIKey, c.AnthropicKey, c.GoogleKey)
 	fmt.Fprintf(&b, "log_prompts=%t migrate_on_boot=%t", c.LogPrompts, c.MigrateOnBoot)
 	return b.String()
 }

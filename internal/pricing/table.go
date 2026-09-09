@@ -369,3 +369,34 @@ func (t *Table) Rows() []Row {
 	}
 	return out
 }
+
+// HasActivePrice reports whether the table can price this model now.
+//
+// A model with no active price cannot be metered, which is the one thing this
+// gateway exists to do, so it is not offered to clients.
+func (t *Table) HasActivePrice(model, provider string, at time.Time) bool {
+	for _, r := range t.rows[modelKey{model, provider}] {
+		if r.Covers(at, 0) {
+			return true
+		}
+	}
+	return false
+}
+
+// ModelProviders maps every priced model to the provider that serves it.
+//
+// Routing follows pricing rather than a separate list, so a model cannot be
+// routable without being priceable — which is the state that would let
+// untracked spend through.
+func (t *Table) ModelProviders() map[string]string {
+	out := make(map[string]string, len(t.rows))
+	for key := range t.rows {
+		out[key.model] = key.provider
+	}
+	for key, aliases := range t.aliases {
+		for _, a := range aliases {
+			out[key.alias] = a.Provider
+		}
+	}
+	return out
+}

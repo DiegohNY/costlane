@@ -437,3 +437,48 @@ func nextWindowStart() time.Time {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
 }
+
+// RemainingBudget reports how much a key may still spend this window, or nil
+// when the key is unlimited.
+//
+// It exists to fill a response header, so it reads from the replica pool and
+// a failure is not worth reporting: a missing header is a small loss next to
+// a failed request.
+func (db *DB) RemainingBudget(ctx context.Context, keyID uuid.UUID) (*decimal.Decimal, error) {
+	var remaining *string
+	err := db.read.QueryRow(ctx, `
+		SELECT CASE
+		         WHEN limit_usd IS NULL THEN NULL
+		         ELSE (limit_usd - spent_usd - reserved_usd)::text
+		       END
+		  FROM key_budgets WHERE key_id = $1`, keyID).Scan(&remaining)
+	if err != nil {
+		return nil, err
+	}
+	if remaining == nil {
+		return nil, nil
+	}
+	d := mustDecimal(*remaining)
+	return &d, nil
+}
+
+// KeyHasBudget reports whether a key carries a spending limit.
+//
+// It exists for one decision: an unpriced model estimates at zero, so a
+// reservation for it succeeds against any budget. A key with a limit must
+// therefore be refused before the reserve rather than after it.
+func (db *DB) KeyHasBudget(ctx context.Context, keyHash []byte) (bool, error) {
+	var limited bool
+	err := db.read.QueryRow(ctx, `
+		SELECT kb.limit_usd IS NOT NULL
+		  FROM virtual_keys vk
+		  JOIN key_budgets kb ON kb.key_id = vk.id
+		 WHERE vk.key_hash = $1 AND vk.revoked_at IS NULL`, keyHash).Scan(&limited)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrKeyNotFound
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: checking for a budget: %w", err)
+	}
+	return limited, nil
+}

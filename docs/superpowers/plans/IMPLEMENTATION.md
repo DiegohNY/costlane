@@ -196,25 +196,39 @@ Goal: a thousand concurrent requests never breach one counter.
 
 Goal: a request crosses the gateway and is accounted for exactly.
 
-- [ ] `cmd/fakeprovider` standalone binary
-- [ ] Scenarios controlled by header: latency, chunk rate, mid-stream failure, different served model
-- [ ] `httptest` in-process harness sharing the same core
-- [ ] `provider.Provider` interface (extension point for later failover)
-- [ ] OpenAI adapter, non-streaming
-- [ ] Anthropic adapter, non-streaming, dialect translation
-- [ ] Google adapter, non-streaming, dialect translation
-- [ ] Model to provider routing table, optional explicit prefix override
-- [ ] Tool calling passthrough
-- [ ] `POST /v1/chat/completions` non-streaming, full path
-- [ ] `GET /v1/models` from the local price snapshot
-- [ ] Error envelope in OpenAI format, full status table per spec §7.4
-- [ ] `provider_request_id` captured, including on failure
-- [ ] Usage records written synchronously for now (async arrives in F7)
-- [ ] TEST: end-to-end happy path, exact accounting
-- [ ] TEST: each error in the table returns its stated code
-- [ ] TEST: unpriced + budget = 400; unpriced without budget = 200 with NULL cost
-- [ ] TEST: served_model differs from requested — priced on served, metric fires
-- [ ] TEST: tool calling round-trip
+- [x] `cmd/fakeprovider` standalone binary
+- [x] Scenarios controlled by header: latency, chunk rate, mid-stream failure, different served model
+- [x] `httptest` in-process harness sharing the same core
+- [x] `provider.Provider` interface (extension point for later failover)
+- [x] OpenAI adapter, non-streaming
+- [x] Anthropic adapter, non-streaming, dialect translation
+- [x] Google adapter, non-streaming, dialect translation
+- [x] Model to provider routing table, optional explicit prefix override
+- [x] Tool calling passthrough
+- [x] `POST /v1/chat/completions` non-streaming, full path
+- [x] `GET /v1/models` from the local price snapshot
+- [x] Error envelope in OpenAI format, full status table per spec §7.4
+- [x] `provider_request_id` captured, including on failure
+- [x] Usage records written synchronously for now (async arrives in F7)
+- [x] TEST: end-to-end happy path, exact accounting
+- [x] TEST: each error in the table returns its stated code
+- [x] TEST: unpriced + budget = 400; unpriced without budget = 200 with NULL cost
+- [x] Fixed: an unpriced model estimates at zero, so the budget check had to
+      move ahead of the reserve — a zero reservation succeeds against any limit
+- [x] TEST: served_model differs from requested — priced on served, metric fires
+- [x] TEST: tool calling round-trip
+- [x] Fake provider speaks all three native dialects, verified against the normalisers
+- [x] Byte-for-byte passthrough for OpenAI; surgical edits via json.RawMessage
+- [x] TEST: a body with ten invented fields reaches the provider unchanged
+- [x] Fail-closed translation: an unsupported parameter is refused by name
+- [x] Golden fixtures pin the Anthropic translation, one file per case
+- [x] max_tokens injected only where a provider requires it, declared in a header
+- [x] Upstream error bodies pass through redaction; Retry-After preserved
+- [x] Dedicated HTTP client with keep-alive and HTTP/2, never DefaultClient
+- [x] MaxBytesReader on the body; X-Costlane-Request-Id on every response
+- [x] X-Costlane-Cost-Usd and X-Costlane-Budget-Remaining-Usd on non-stream replies
+- [x] Validation happens before the reserve, so no wasted round trip or audit row
+- [x] VERIFY: real gateway against real Postgres and the fake provider
 - [ ] REVIEW CHECKPOINT — wait for approval
 
 ## F6 — Streaming
