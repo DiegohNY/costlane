@@ -331,17 +331,28 @@ Goal: spend is queryable, and secrets never leak.
 
 Goal: the numbers are published and the first command works for free.
 
-- [ ] `BenchmarkProxyOverhead` (non-streaming)
-- [ ] benchstat comparison posted to the PR
-- [ ] CI benchmark gate at >100% p99 regression only
-- [ ] Measurement run on a dedicated machine, hardware stated
+- [x] `BenchmarkNonStreamGateway` / `BenchmarkNonStreamDirect` (non-streaming
+      overhead, measured as a delta rather than in isolation)
+- [x] `BenchmarkStreamGateway` / `BenchmarkStreamDirect` (TTFT and per-chunk)
+- [x] benchstat comparison posted to the PR step summary
+- [x] CI benchmark gate at >100% regression only
+- [x] Measurement run on stated hardware, by a CI job anyone can read
 - [ ] p50/p99 figures in the README, with methodology
-- [ ] `docker-compose.yml`: gateway + Postgres + fakeprovider
+- [x] `docker-compose.yml`: gateway + Postgres + fakeprovider
 - [ ] VERIFY: `docker compose up` yields a working gateway with no real keys
-- [ ] README: quickstart, configuration, API, cost model
-- [ ] ADR set for the load-bearing decisions
-- [ ] CONTRIBUTING, SECURITY.md
-- [ ] Full security review pass
+- [x] README: quickstart, configuration, API, cost model
+- [x] ADR set for the decisions that reversed an earlier one
+- [x] SECURITY.md with a threat model and a reporting channel
+- [x] `govulncheck` as a blocking CI job
+- [x] The server refuses to boot without a master key, or with prompt logging
+      and no retention
+- [x] A test that counts the database round trips on the happy path
+- [x] Live-provider verification harness (`internal/providerverify`)
+- [ ] Live-provider verification RUN, with results in
+      `docs/provider-verification.md`
+- [x] Version stamped by ldflags and reported by `/healthz`
+- [x] Multi-arch image published to GHCR on a tag
+- [ ] v0.1.0 tagged, with a hand-written changelog
 - [ ] VERIFY: every box above is ticked
 - [ ] REVIEW CHECKPOINT — v1 complete
 

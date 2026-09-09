@@ -2,9 +2,11 @@ package api_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/DiegohNY/costlane/internal/api"
@@ -96,5 +98,40 @@ func TestProbesNeedNoCredential(t *testing.T) {
 				t.Errorf("%s demanded a credential", path)
 			}
 		})
+	}
+}
+
+// The build that answered is the first question of every incident, and
+// asking it must not require a credential. Liveness is the one probe that
+// stays up regardless of dependencies, so the version rides on that.
+func TestLivenessReportsTheBuildVersion(t *testing.T) {
+	h := api.NewHealth(stubPinger{}, func() bool { return true })
+	h.Version = "v9.9.9"
+
+	rec := httptest.NewRecorder()
+	h.Live(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+	var body struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("liveness body is not JSON (%q): %v", rec.Body.String(), err)
+	}
+	if body.Status != "ok" || body.Version != "v9.9.9" {
+		t.Errorf("liveness = %+v, want status ok and version v9.9.9", body)
+	}
+}
+
+// An unstamped binary is a local build. Reporting "dev" says so; an empty
+// string reads like a broken probe.
+func TestLivenessReportsDevWhenUnstamped(t *testing.T) {
+	h := api.NewHealth(stubPinger{}, func() bool { return true })
+
+	rec := httptest.NewRecorder()
+	h.Live(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+	if !strings.Contains(rec.Body.String(), `"version":"dev"`) {
+		t.Errorf("unstamped liveness body = %q, want version dev", rec.Body.String())
 	}
 }

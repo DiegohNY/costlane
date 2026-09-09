@@ -95,6 +95,105 @@ jobs:
           go test ./internal/provider/ -run FuzzAnthropicStreamTranslator \
             -fuzz FuzzAnthropicStreamTranslator -fuzztime 30s
 
+  vuln:
+    name: vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      # A gateway holds provider credentials and a customer's prompts. A
+      # known vulnerability in a dependency is not a warning to triage
+      # later, so this job blocks like every other one.
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
+
+  bench:
+    name: bench
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - name: install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      # Only the CPU-bound stream benchmarks are gated. The end-to-end
+      # figures published in the README involve a container, a socket and a
+      # shared runner, and their noise is larger than any regression worth
+      # catching; gating on them would produce a flaky required check,
+      # which teaches people to rerun rather than to look.
+      - name: benchmark this branch
+        run: go test ./internal/proxy/ -run '^$' -bench "$BENCHES" -count 6 | tee new.txt
+        env:
+          BENCHES: BenchmarkStreamPassthrough|BenchmarkStreamWithUsageStripping|BenchmarkFrameReader
+
+      - name: benchmark the merge base
+        run: |
+          git worktree add ../base "$(git merge-base origin/$BASE_REF HEAD)"
+          cd ../base
+          go test ./internal/proxy/ -run '^$' -bench "$BENCHES" -count 6 | tee "$GITHUB_WORKSPACE/old.txt"
+        env:
+          BENCHES: BenchmarkStreamPassthrough|BenchmarkStreamWithUsageStripping|BenchmarkFrameReader
+          BASE_REF: ${{ github.base_ref }}
+
+      - name: compare
+        run: |
+          benchstat old.txt new.txt | tee comparison.txt
+          {
+            echo '### Benchmark comparison'
+            echo '```'
+            cat comparison.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Only a doubling blocks. A tighter gate on a shared runner is a coin
+      # flip, and a coin flip that blocks merges gets disabled.
+      - name: gate on a regression larger than 100%
+        run: |
+          worst=$(grep -oE '\+[0-9]+\.[0-9]+%' comparison.txt | tr -d '+%' | sort -g | tail -1)
+          if [ -z "$worst" ]; then
+            echo "no regression reported"
+            exit 0
+          fi
+          echo "largest regression: ${worst}%"
+          awk -v w="$worst" 'BEGIN { if (w > 100) { print "regressed by more than 100%"; exit 1 } }'
+
+      # The figures the README publishes. They are measured here rather than
+      # on someone's laptop so that the methodology is a file anyone can read
+      # and the hardware is one anyone can rent. They gate nothing: see the
+      # comment above on runner noise.
+      - name: measure the published overhead figures
+        run: |
+          go test ./internal/proxy/ -run '^$' -bench 'BenchmarkNonStream|BenchmarkStream(Direct|Gateway)' -count 6 -timeout 30m | tee overhead.txt
+          {
+            echo '### Published overhead figures'
+            echo '```'
+            cat overhead.txt
+            echo '```'
+            echo '### Summarised'
+            echo '```'
+            benchstat overhead.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: measure reserve under contention
+        run: |
+          go test ./internal/store/ -run '^$' -bench 'BenchmarkReserve|BenchmarkSettle' -count 6 -timeout 30m | tee reserve.txt
+          {
+            echo '### Reserve under contention'
+            echo '```'
+            cat reserve.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build:
     name: build
     runs-on: ubuntu-latest
