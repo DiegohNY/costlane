@@ -41,10 +41,27 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: go vet ./...
+      # The store package is covered by the integration job, which has a
+      # docker daemon; running it here too would only duplicate the work.
       - name: go test -race
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
+        run: |
+          go test -race -covermode=atomic -coverprofile=coverage.out \
+            $(go list ./... | grep -v '/internal/store')
       - name: coverage summary
         run: go tool cover -func=coverage.out | tail -1
+
+  integration:
+    name: integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      # testcontainers starts its own pinned Postgres; the runner's docker
+      # daemon is all it needs.
+      - name: go test -race (integration)
+        run: go test ./internal/store/... -race -timeout 15m -v
 
   build:
     name: build
