@@ -367,3 +367,43 @@ Checked at every review checkpoint:
 - [ ] Test written before implementation
 - [ ] No test commit on `main`, ever — verify protection by reading the API,
       and any behavioural test uses a throwaway canary branch
+
+---
+
+## Where this stands
+
+Last updated 2026-09-09, at the end of F7.
+
+**Merged through F7.** The gateway proxies, meters and enforces budgets, with
+streaming, a read API, health probes and a leak test. 310 tests pass across
+twelve packages; CI runs six required jobs (lint, test, integration, fuzz,
+leak, build).
+
+**F8 is the remaining phase.** Nothing in it has been started.
+
+### Picking this up on another machine
+
+```bash
+git clone https://github.com/DiegohNY/costlane
+cd costlane
+go test ./... -race          # needs Docker for the integration packages
+```
+
+The integration, leak and benchmark tests start a pinned Postgres through
+testcontainers, so Docker has to be running; without it they skip rather than
+fail. `golangci-lint` is pinned to v2.13.2 in CI, and running it locally
+before pushing saves a round trip — three of the first pull requests were
+turned red by something it finds in seconds.
+
+### Two things deliberately left open
+
+**Per-provider disconnect behaviour is unverified** (F6). The cancel policy
+rests on providers stopping generation when a connection closes, which is
+documented but not confirmed against live APIs, because that needs real
+credentials. An operator who wants certainty over cost can set a key's
+`disconnect_policy` to `drain`.
+
+**Prices are not mirrored into Postgres** (F2). They load from embedded YAML
+into an in-memory snapshot, which is what every lookup reads. A second copy in
+the database would be a second source of truth that could disagree with the
+one in use, so it was left out until something actually needs it.
