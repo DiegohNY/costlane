@@ -46,17 +46,32 @@ pump. The counts accumulated while the stream ran are compared against the
 provider's own final usage event, read independently from a tee of the raw
 upstream bytes. They must agree to the token.
 
-**(c) Cancellation.** A long completion is requested, five chunks are read, and
-the context is cancelled — exactly what a client closing its connection does.
-The test asserts the upstream body stops delivering promptly, and logs the
-provider request id, the start time, the cancellation time and the number of
-chunks read.
+**(c) Cancellation.** A completion is requested with `max_tokens: 4000` and a
+prompt written to reach it — three thousand words on the history of the metric
+system. **One chunk** is read and the context is cancelled, which is exactly
+what a client closing its connection does, as early as it can be done. The test
+asserts the upstream body stops delivering promptly.
 
-Half of (c) cannot be automated. Billing is confirmed by opening the
-provider's usage dashboard, finding the request by id or by timestamp, and
-checking that the output tokens charged correspond to the handful of chunks
-that were read rather than to the full completion that was asked for. That
-confirmation is recorded by hand below.
+The size of that request is the whole design of the check. A dashboard reports
+a day in aggregate, so a cancelled request that was only ever going to produce
+thirty tokens vanishes into everything else billed that day and proves nothing.
+Asking for four thousand and taking one makes the two outcomes unmistakable:
+
+- **roughly one token of output billed** → generation stopped at the
+  disconnect, and the cancel default is correct.
+- **roughly four thousand** → the provider kept generating after the connection
+  closed, and the default is wrong for it.
+
+For each provider the test prints, in one block: the UTC start timestamp, the
+UTC cancellation timestamp, how long the upstream took to stop, the provider
+request id, the chunks read before the cancel, and the `max_tokens` the request
+allowed. Those are the six things needed to find the request on a dashboard and
+say what it should have cost.
+
+Half of (c) cannot be automated. Billing is confirmed by a human opening the
+provider's usage dashboard, filtering to the UTC window the test printed,
+finding the request by id where the provider exposes one, and reading the
+output tokens charged. That confirmation is recorded by hand below.
 
 ## Results
 
@@ -84,11 +99,19 @@ Google has no streaming adapter today; that row is expected to read
 
 ### (c) Billing stops on cancellation
 
-| Provider | Chunks read | Upstream stopped within | Dashboard: output tokens billed | Consistent with a cancelled stream | Checked by / when |
-|----------|-------------|-------------------------|---------------------------------|------------------------------------|-------------------|
-| OpenAI | | | | | |
-| Anthropic | | | | | |
-| Google | | | | | |
+Ceiling asked for in every row: `max_tokens: 4000`. Cancelled after one chunk.
+
+| Provider | Started (UTC) | Cancelled (UTC) | Stopped within | Provider request id | Chunks read | Dashboard: output tokens billed | Verdict |
+|----------|---------------|-----------------|----------------|---------------------|-------------|---------------------------------|---------|
+| OpenAI | | | | | | | |
+| Anthropic | | | | | | | |
+| Google | | | | | | | |
+
+Verdict is **stopped** when the billed output is near the chunks read, and
+**kept generating** when it is near 4000. Anything in between goes in the notes
+with the figure, not rounded to whichever verdict is more convenient.
+
+Dashboard checked by: _pending_ — on: _pending_
 
 ### Notes
 

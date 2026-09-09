@@ -267,6 +267,18 @@ func lastReportedUsage(sse string) map[string]int64 {
 	return last
 }
 
+// cancelMaxTokens is the ceiling the cancelled request asks for, and the
+// prompt is written to reach it. The gap between what a cancelled stream
+// produces and what it was allowed to produce is what makes the result legible
+// on a usage dashboard.
+//
+// A dashboard reports a day in aggregate. A cancelled request that was only
+// ever going to yield thirty tokens disappears into the noise of everything
+// else billed that day, and the check would prove nothing. Asking for four
+// thousand and taking one makes the two outcomes unmistakable: roughly one
+// token means generation stopped, roughly four thousand means it did not.
+const cancelMaxTokens = 4000
+
 // The cancel policy is the one assumption with real money attached: costlane
 // closes the upstream connection when a client disappears, on the belief that
 // the provider stops generating and stops charging.
@@ -289,30 +301,36 @@ func TestCancellingMidStreamStopsTheUpstream(t *testing.T) {
 			started := time.Now().UTC()
 			stream, err := streamer.Stream(ctx, provider.Request{
 				Body: body(tgt.model, true,
-					"Write a 2000 word essay about the history of the metric system."),
+					"Write a 3000 word essay on the history of the metric system, "+
+						"from the French Revolution to the present day. Cover the "+
+						"original definitions, the 1875 Metre Convention, the SI "+
+						"redefinitions of 1960, 1983 and 2019, and the countries "+
+						"that never adopted it. Write it in full."),
 				Model:     tgt.model,
 				Stream:    true,
-				MaxTokens: 4000,
+				MaxTokens: cancelMaxTokens,
 			})
 			if err != nil {
 				t.Fatalf("streaming from %s: %v", tgt.name, err)
 			}
 			defer func() { _ = stream.Body.Close() }()
 
-			// Read a handful of chunks, then leave, exactly as a client
-			// closing its connection would.
+			// One chunk, then leave — exactly what a client closing its
+			// connection does, and as early as it can be done.
 			reader := proxy.NewFrameReader(stream.Body)
-			const readChunks = 5
-			var seen int
-			for seen < readChunks {
-				if _, err := reader.Next(); err != nil {
-					t.Fatalf("the %s stream ended after %d chunks, before the "+
-						"cancellation under test: %v", tgt.name, seen, err)
-				}
-				seen++
+			frame, err := reader.Next()
+			if err != nil {
+				t.Fatalf("the %s stream ended before its first chunk, so there "+
+					"was nothing to cancel: %v", tgt.name, err)
 			}
+			chunks := 1
+			delivered := len(frame.Data)
 
-			cancelledAt := time.Now().UTC()
+			// Two clocks on purpose: the UTC stamp is what a dashboard
+			// filters on, and time.Now().UTC() drops the monotonic reading
+			// that measuring an elapsed interval needs.
+			cancelMark := time.Now()
+			cancelledAt := cancelMark.UTC()
 			cancel()
 
 			// The upstream read must end promptly. A provider that kept
@@ -322,19 +340,36 @@ func TestCancellingMidStreamStopsTheUpstream(t *testing.T) {
 				_, err := io.Copy(io.Discard, stream.Body)
 				done <- err
 			}()
+			var stoppedWithin time.Duration
 			select {
 			case <-done:
+				stoppedWithin = time.Since(cancelMark)
 			case <-time.After(10 * time.Second):
 				t.Errorf("the %s stream was still delivering ten seconds after "+
 					"cancellation: the cancel policy does not stop this provider",
 					tgt.name)
 			}
 
-			t.Logf("CHECK THE DASHBOARD for %s: request started %s, %d chunks read, "+
-				"cancelled %s, provider_request_id=%s. Billed output tokens should "+
-				"correspond to roughly %d chunks, not to a 2000 word essay.",
-				tgt.name, started.Format(time.RFC3339), seen,
-				cancelledAt.Format(time.RFC3339), stream.ProviderRequestID, seen)
+			// Everything docs/provider-verification.md needs, in one place. The
+			// timestamps are UTC because that is what every provider dashboard
+			// filters on.
+			t.Logf(`CHECK THE DASHBOARD — %s
+  started (UTC):          %s
+  cancelled (UTC):        %s
+  upstream stopped within %s of the cancel
+  provider request id:    %s
+  chunks read before cancel: %d (%d bytes of frame payload)
+  max_tokens the request allowed: %d
+  Expect the day's billed output for this request to sit near the chunk count,
+  not near %d. Near %d means this provider kept generating after the
+  connection closed, and the cancel default is wrong for it.`,
+				tgt.name,
+				started.Format(time.RFC3339),
+				cancelledAt.Format(time.RFC3339),
+				stoppedWithin.Round(time.Millisecond),
+				stream.ProviderRequestID,
+				chunks, delivered,
+				cancelMaxTokens, cancelMaxTokens, cancelMaxTokens)
 		})
 	}
 }
