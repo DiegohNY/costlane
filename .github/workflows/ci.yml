@@ -28,7 +28,9 @@ jobs:
           fi
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # Pinned: a new linter release must be an intentional upgrade,
+          # not a build that starts failing on its own.
+          version: v2.6.1
 
   test:
     name: test

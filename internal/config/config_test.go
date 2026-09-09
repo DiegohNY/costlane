@@ -81,7 +81,8 @@ func TestDrainTimeoutEqualToProviderTimeoutIsAllowed(t *testing.T) {
 	withEnv(t, env) // boundary is inclusive
 }
 
-// Spec 5.7: TTL >= provider_timeout + drain_timeout + margin.
+// Spec 5.7: the enforced floor is TTL >= provider_timeout + drain_timeout.
+// The extra margin applies only to the default, not to the validation.
 func TestReservationTTLMustCoverProviderPlusDrain(t *testing.T) {
 	env := baseEnv()
 	env["COSTLANE_PROVIDER_TIMEOUT"] = "300s"
@@ -199,5 +200,39 @@ func lookupFrom(env map[string]string) func(string) (string, bool) {
 	return func(k string) (string, bool) {
 		v, ok := env[k]
 		return v, ok
+	}
+}
+
+// A required value that is present but padded must arrive trimmed: it feeds a
+// connection string and a constant-time credential comparison, where a stray
+// newline from a shell heredoc would fail in a way that is hard to see.
+func TestRequiredValuesAreTrimmed(t *testing.T) {
+	env := baseEnv()
+	env["COSTLANE_DATABASE_URL"] = "  postgres://u:p@localhost:5432/costlane\n"
+	env["COSTLANE_MASTER_KEY"] = "\ttest-master-key-at-least-32-chars-long  "
+
+	cfg := withEnv(t, env)
+	if strings.TrimSpace(cfg.DatabaseURL) != cfg.DatabaseURL {
+		t.Errorf("DatabaseURL retained whitespace: %q", cfg.DatabaseURL)
+	}
+	if strings.TrimSpace(cfg.MasterKey) != cfg.MasterKey {
+		t.Errorf("MasterKey retained whitespace: %q", cfg.MasterKey)
+	}
+}
+
+// Every tunable that is loaded must appear in the logged rendering, or a
+// deployment running on a non-default value shows no sign of it.
+func TestStringRendersEveryTunable(t *testing.T) {
+	cfg := withEnv(t, baseEnv())
+	s := cfg.String()
+	for _, field := range []string{
+		"provider_timeout", "drain_timeout", "reservation_ttl",
+		"disconnect_policy", "max_concurrent_drains", "default_max_tokens",
+		"reaper_interval", "read_timeout", "max_query_window", "shutdown_timeout",
+		"log_prompts", "migrate_on_boot",
+	} {
+		if !strings.Contains(s, field) {
+			t.Errorf("Config.String() omits %q:\n%s", field, s)
+		}
 	}
 }

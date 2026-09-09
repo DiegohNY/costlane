@@ -138,8 +138,10 @@ func (c *Config) String() string {
 		c.ProviderTimeout, c.DrainTimeout, c.ReservationTTL)
 	fmt.Fprintf(&b, "disconnect_policy=%s max_concurrent_drains=%d ",
 		c.DisconnectPolicy, c.MaxConcurrentDrains)
-	fmt.Fprintf(&b, "default_max_tokens=%d log_prompts=%t migrate_on_boot=%t",
-		c.DefaultMaxTokens, c.LogPrompts, c.MigrateOnBoot)
+	fmt.Fprintf(&b, "default_max_tokens=%d ", c.DefaultMaxTokens)
+	fmt.Fprintf(&b, "reaper_interval=%s read_timeout=%s max_query_window=%s shutdown_timeout=%s ",
+		c.ReaperInterval, c.ReadTimeout, c.MaxQueryWindow, c.ShutdownTimeout)
+	fmt.Fprintf(&b, "log_prompts=%t migrate_on_boot=%t", c.LogPrompts, c.MigrateOnBoot)
 	return b.String()
 }
 
@@ -166,11 +168,15 @@ func redactURL(raw string) string {
 	return scheme + "://" + rest
 }
 
+// requireString returns the trimmed value of a mandatory variable. It trims
+// before the emptiness check and returns the trimmed value, so a variable
+// cannot be considered present while carrying stray whitespace into a
+// connection string or a credential comparison.
 func requireString(look Lookup, key string, fail func(string, ...any)) string {
-	v, ok := look(key)
-	if !ok || strings.TrimSpace(v) == "" {
+	raw, _ := look(key)
+	v := strings.TrimSpace(raw)
+	if v == "" {
 		fail("%s is required", key)
-		return ""
 	}
 	return v
 }
