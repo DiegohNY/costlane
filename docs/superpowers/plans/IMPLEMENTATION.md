@@ -339,7 +339,8 @@ Goal: the numbers are published and the first command works for free.
 - [x] Measurement run on stated hardware, by a CI job anyone can read
 - [x] p50/p99 figures in the README, with methodology
 - [x] `docker-compose.yml`: gateway + Postgres + fakeprovider
-- [ ] VERIFY: `docker compose up` yields a working gateway with no real keys
+- [x] VERIFY: `docker compose up` yields a working gateway with no real keys,
+      checked by the `quickstart` CI job running the README's own commands
 - [x] README: quickstart, configuration, API, cost model
 - [x] ADR set for the decisions that reversed an earlier one
 - [x] SECURITY.md with a threat model and a reporting channel
