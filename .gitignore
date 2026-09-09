@@ -1,0 +1,36 @@
+# Binaries
+costlane
+fakeprovider
+*.exe
+*.dll
+*.so
+*.dylib
+dist/
+bin/
+
+# Test and coverage
+*.test
+*.out
+coverage.*
+
+# Go workspace
+go.work
+go.work.sum
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+service-account*.json
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
