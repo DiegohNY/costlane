@@ -28,9 +28,30 @@ Goal: an empty but fully wired repository where a red test blocks a merge.
 - [x] `.gitignore` (Go, .env*, *.pem, .DS_Store) + manual secret scan of history
 - [x] Public repo `DiegohNY/costlane` created and pushed
 - [x] Branch protection on main (PR required, no force push, no deletion)
-- [ ] Attach CI jobs as required status checks (once they have run once)
-- [ ] VERIFY: a deliberately failing test blocks the merge
-- [ ] REVIEW CHECKPOINT — wait for approval
+- [x] Attach CI jobs as required status checks (lint, test, build; strict)
+- [x] `enforce_admins: true` — protection applies to the repository owner too
+- [x] VERIFY: protection read back from the API and compared field by field
+- [x] VERIFY: CI red on a real bug (.gitignore excluded `cmd/`) blocked the merge
+- [x] REVIEW CHECKPOINT — approved
+
+### F0 retrospective
+
+Two mistakes, both corrected:
+
+**`.gitignore` excluded the command packages.** The binary patterns
+`costlane` and `fakeprovider` had no leading slash, so git applied them at
+every level and swallowed `cmd/costlane/` and `cmd/fakeprovider/`. The code
+compiled locally from the working copy and never entered the commit. Only
+the docker build, which sees tracked files alone, caught it. Fixed by
+anchoring both patterns to the root, plus a CI step that fails when any Go
+source is untracked — so the error now names its own cause.
+
+**Branch protection was tested destructively, and was bypassable.**
+`enforce_admins` was left false, making the rules decorative for the only
+contributor, and the check was performed by pushing a throwaway commit to
+`main`. It went through as a bypassed rule violation. Protection was
+recreated with `enforce_admins: true` and is now verified by reading the
+API and comparing field by field.
 
 ## F1 — Storage, migrations, schema
 
@@ -258,3 +279,5 @@ Checked at every review checkpoint:
 - [ ] Every window computation uses `AT TIME ZONE 'UTC'`
 - [ ] Reserve, settle, and reap are each exactly one transaction
 - [ ] Test written before implementation
+- [ ] No test commit on `main`, ever — verify protection by reading the API,
+      and any behavioural test uses a throwaway canary branch
