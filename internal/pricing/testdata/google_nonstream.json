@@ -1,0 +1,11 @@
+{
+  "_comment": "usageMetadata shape per https://ai.google.dev/api/generate-content . cachedContentTokenCount is a SUBSET of promptTokenCount and must be subtracted, while thoughtsTokenCount is SEPARATE from candidatesTokenCount and must be added. Google is the only provider that subtracts on input and adds on output.",
+  "modelVersion": "gemini-3.1-pro-preview",
+  "usageMetadata": {
+    "promptTokenCount": 9000,
+    "candidatesTokenCount": 700,
+    "cachedContentTokenCount": 6000,
+    "thoughtsTokenCount": 250,
+    "totalTokenCount": 9950
+  }
+}

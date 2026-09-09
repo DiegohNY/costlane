@@ -1,0 +1,52 @@
+# Google Gemini API rates, standard service tier.
+#
+# Every rate here was read from the page cited in source_url, which itself
+# carried "Last updated 2026-09-08 UTC". Nothing is derived or remembered.
+#
+# Two shapes worth noting.
+#
+# gemini-3.1-pro-preview tiers at 200,000 prompt tokens, and the multipliers
+# differ by kind: input and cache read double, output rises only 1.5x. A
+# single per-tier multiplier would produce wrong numbers, which is why every
+# kind carries its own rate.
+#
+# gemini-3.8-flash has no context tier but a scheduled repricing: the rates
+# double on 2027-01-01. Both windows are declared, so the change lands
+# without anyone remembering to act.
+#
+# Cache STORAGE is charged per million tokens per hour and is a function of
+# cache lifetime rather than of any request. It cannot be attributed to a
+# request and is deliberately absent: this file prices requests.
+#
+# Vertex AI is NOT seeded. Its pricing page could not be retrieved, and
+# Vertex rates have historically diverged from the Gemini API. An
+# unverifiable rate does not enter the table.
+provider: google
+models:
+  - model: gemini-3.1-pro-preview
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    fetched_at: 2026-09-09T00:00:00Z
+    prices:
+      # At or below 200,000 prompt tokens.
+      - {kind: input,       tier_to: 200000, usd_per_mtok: "2"}
+      - {kind: cached_read, tier_to: 200000, usd_per_mtok: "0.20"}
+      - {kind: output,      tier_to: 200000, usd_per_mtok: "12"}
+      # Above 200,000: input and cache read double, output is 1.5x.
+      - {kind: input,       tier_from: 200000, usd_per_mtok: "4"}
+      - {kind: cached_read, tier_from: 200000, usd_per_mtok: "0.40"}
+      - {kind: output,      tier_from: 200000, usd_per_mtok: "18"}
+
+  - model: gemini-3.8-flash
+    source_url: https://ai.google.dev/gemini-api/docs/pricing
+    fetched_at: 2026-09-09T00:00:00Z
+    prices:
+      # Flat rate regardless of prompt size, through the end of 2026.
+      - {kind: input,       usd_per_mtok: "0.75",  effective_until: 2027-01-01T00:00:00Z}
+      - {kind: cached_read, usd_per_mtok: "0.075", effective_until: 2027-01-01T00:00:00Z}
+      - {kind: output,      usd_per_mtok: "3.75",  effective_until: 2027-01-01T00:00:00Z}
+      # The published increase, declared in advance.
+      - {kind: input,       usd_per_mtok: "1.50", effective_from: 2027-01-01T00:00:00Z}
+      - {kind: cached_read, usd_per_mtok: "0.15", effective_from: 2027-01-01T00:00:00Z}
+      - {kind: output,      usd_per_mtok: "7.50", effective_from: 2027-01-01T00:00:00Z}
+
+aliases: []

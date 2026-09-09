@@ -236,3 +236,33 @@ func TestStringRendersEveryTunable(t *testing.T) {
 		}
 	}
 }
+
+func TestTierGuardDefaultsToThreeQuarters(t *testing.T) {
+	cfg := withEnv(t, baseEnv())
+	if cfg.TierGuard != 0.75 {
+		t.Errorf("TierGuard = %v, want 0.75", cfg.TierGuard)
+	}
+}
+
+// Zero would disable the guard without saying so, and above one would push
+// every request to the top tier. Both are configuration errors.
+func TestTierGuardRejectsValuesOutsideItsRange(t *testing.T) {
+	for _, v := range []string{"0", "-0.5", "1.5", "2"} {
+		t.Run(v, func(t *testing.T) {
+			env := baseEnv()
+			env["COSTLANE_TIER_GUARD"] = v
+			if _, err := LoadFrom(lookupFrom(env)); err == nil {
+				t.Errorf("tier guard %q must be rejected", v)
+			}
+		})
+	}
+}
+
+func TestTierGuardAcceptsOne(t *testing.T) {
+	env := baseEnv()
+	env["COSTLANE_TIER_GUARD"] = "1"
+	cfg := withEnv(t, env)
+	if cfg.TierGuard != 1 {
+		t.Errorf("TierGuard = %v, want 1 (guard only at the threshold itself)", cfg.TierGuard)
+	}
+}

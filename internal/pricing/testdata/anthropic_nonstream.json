@@ -1,0 +1,15 @@
+{
+  "_comment": "Messages API usage shape. Per https://platform.claude.com/docs/en/build-with-claude/prompt-caching the cache fields are SEPARATE from input_tokens and must be added: total_input = cache_read + cache_creation + input. The nested cache_creation breakdown carries the TTL split, which the flat total does not.",
+  "id": "msg-fixture-1",
+  "model": "claude-sonnet-5",
+  "usage": {
+    "input_tokens": 500,
+    "output_tokens": 1200,
+    "cache_creation_input_tokens": 248,
+    "cache_read_input_tokens": 8000,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 148,
+      "ephemeral_1h_input_tokens": 100
+    }
+  }
+}

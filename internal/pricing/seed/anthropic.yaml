@@ -1,0 +1,63 @@
+# Anthropic rates, standard service tier.
+#
+# Every rate here was read from the page cited in source_url on the date in
+# fetched_at. Nothing is derived, inferred, or remembered.
+#
+# Two things this file captures that a simpler schema could not.
+#
+# Cache writes have two TTLs at different prices — a 5-minute and a 1-hour
+# variant, 1.6x apart. The API reports a flat cache_creation_input_tokens
+# total plus a nested cache_creation breakdown; pricing the flat total would
+# misprice every 1-hour workload, so both kinds are declared here.
+#
+# Cache read is NOT a fixed multiple of input. Most models use 0.1x, but
+# claude-fable-5-1 uses 0.025x. Deriving the rate instead of reading it would
+# overstate Fable's cache reads fourfold.
+#
+# No long-context tier: the pricing page states that Claude 4.6 and later
+# "include the full 1M token context window at standard pricing", so a
+# 900k-token request bills at the same per-token rate as a 9k one.
+provider: anthropic
+models:
+  - model: claude-fable-5-1
+    source_url: https://platform.claude.com/docs/en/about-claude/pricing
+    fetched_at: 2026-09-09T00:00:00Z
+    context_window: 1000000
+    max_output_tokens: 128000
+    prices:
+      - {kind: input,          usd_per_mtok: "10"}
+      - {kind: cache_write_5m, usd_per_mtok: "12.50"}
+      - {kind: cache_write_1h, usd_per_mtok: "20"}
+      # 0.025x input, not the usual 0.1x. Read from the page, not derived.
+      - {kind: cached_read,    usd_per_mtok: "0.25"}
+      - {kind: output,         usd_per_mtok: "50"}
+
+  - model: claude-opus-5
+    source_url: https://platform.claude.com/docs/en/about-claude/pricing
+    fetched_at: 2026-09-09T00:00:00Z
+    context_window: 1000000
+    max_output_tokens: 128000
+    prices:
+      - {kind: input,          usd_per_mtok: "5"}
+      - {kind: cache_write_5m, usd_per_mtok: "6.25"}
+      - {kind: cache_write_1h, usd_per_mtok: "10"}
+      - {kind: cached_read,    usd_per_mtok: "0.50"}
+      - {kind: output,         usd_per_mtok: "25"}
+
+  - model: claude-sonnet-5
+    source_url: https://platform.claude.com/docs/en/about-claude/pricing
+    fetched_at: 2026-09-09T00:00:00Z
+    context_window: 1000000
+    max_output_tokens: 128000
+    prices:
+      - {kind: input,          usd_per_mtok: "2"}
+      - {kind: cache_write_5m, usd_per_mtok: "2.50"}
+      - {kind: cache_write_1h, usd_per_mtok: "4"}
+      - {kind: cached_read,    usd_per_mtok: "0.20"}
+      - {kind: output,         usd_per_mtok: "10"}
+
+# From the Claude 4.6 generation on, a dateless model id IS the pinned
+# snapshot rather than a moving pointer, so the three models above need no
+# alias rows. Only Haiku 4.5 follows the older convention of a dated id with
+# a separate documented alias, and it is not seeded here.
+aliases: []

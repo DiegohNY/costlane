@@ -234,13 +234,10 @@ func TestSettledReservationMustCarryAmountAndTimestamp(t *testing.T) {
 func TestOverlappingPriceRowsAreRejected(t *testing.T) {
 	db := newTestDB(t)
 	insert := func(from, until any) error {
-		_, err := db.Pool().Exec(t.Context(),
-			`INSERT INTO model_prices
-			   (id, model, provider, input_usd_per_mtok, output_usd_per_mtok,
-			    effective_from, effective_until)
-			 VALUES ($1, 'gpt-4o-2024-08-06', 'openai', 2.5, 10, $2, $3)`,
-			uuid.New(), from, until)
-		return err
+		return insertPrice(t, db, priceRow{
+			model: "gpt-6-astra", provider: "openai", kind: "input",
+			rate: "10", from: from, until: until,
+		})
 	}
 	if err := insert("2026-01-01T00:00:00Z", "2026-06-01T00:00:00Z"); err != nil {
 		t.Fatalf("seeding the first price: %v", err)
@@ -252,13 +249,10 @@ func TestOverlappingPriceRowsAreRejected(t *testing.T) {
 func TestAdjacentPriceRowsAreAccepted(t *testing.T) {
 	db := newTestDB(t)
 	insert := func(from, until any) error {
-		_, err := db.Pool().Exec(t.Context(),
-			`INSERT INTO model_prices
-			   (id, model, provider, input_usd_per_mtok, output_usd_per_mtok,
-			    effective_from, effective_until)
-			 VALUES ($1, 'gpt-4o-2024-08-06', 'openai', 2.5, 10, $2, $3)`,
-			uuid.New(), from, until)
-		return err
+		return insertPrice(t, db, priceRow{
+			model: "gpt-6-astra", provider: "openai", kind: "input",
+			rate: "10", from: from, until: until,
+		})
 	}
 	if err := insert("2026-01-01T00:00:00Z", "2026-06-01T00:00:00Z"); err != nil {
 		t.Fatalf("first price: %v", err)
@@ -275,13 +269,10 @@ func TestAdjacentPriceRowsAreAccepted(t *testing.T) {
 func TestDistinctContextTiersCoexist(t *testing.T) {
 	db := newTestDB(t)
 	insert := func(from int64, to any) error {
-		_, err := db.Pool().Exec(t.Context(),
-			`INSERT INTO model_prices
-			   (id, model, provider, input_usd_per_mtok, output_usd_per_mtok,
-			    input_tokens_from, input_tokens_to, effective_from)
-			 VALUES ($1, 'gemini-2.5-pro', 'google', 1.25, 10, $2, $3, '2026-01-01T00:00:00Z')`,
-			uuid.New(), from, to)
-		return err
+		return insertPrice(t, db, priceRow{
+			model: "gemini-3.1-pro-preview", provider: "google", kind: "input",
+			rate: "2", from: "2026-01-01T00:00:00Z", tierFrom: from, tierTo: to,
+		})
 	}
 	if err := insert(0, int64(200000)); err != nil {
 		t.Fatalf("low tier: %v", err)
@@ -296,12 +287,10 @@ func TestDistinctContextTiersCoexist(t *testing.T) {
 func TestSameModelOnDifferentProvidersCoexists(t *testing.T) {
 	db := newTestDB(t)
 	insert := func(provider string) error {
-		_, err := db.Pool().Exec(t.Context(),
-			`INSERT INTO model_prices
-			   (id, model, provider, input_usd_per_mtok, output_usd_per_mtok, effective_from)
-			 VALUES ($1, 'claude-sonnet-4-5', $2, 3, 15, '2026-01-01T00:00:00Z')`,
-			uuid.New(), provider)
-		return err
+		return insertPrice(t, db, priceRow{
+			model: "claude-sonnet-5", provider: provider, kind: "input",
+			rate: "2", from: "2026-01-01T00:00:00Z",
+		})
 	}
 	if err := insert("anthropic"); err != nil {
 		t.Fatalf("anthropic: %v", err)
@@ -350,32 +339,28 @@ func TestAliasRemappingOverTimeIsAccepted(t *testing.T) {
 
 func TestInvertedValidityRangeIsRejected(t *testing.T) {
 	db := newTestDB(t)
-	_, err := db.Pool().Exec(t.Context(),
-		`INSERT INTO model_prices
-		   (id, model, provider, input_usd_per_mtok, output_usd_per_mtok,
-		    effective_from, effective_until)
-		 VALUES ($1, 'gpt-4o', 'openai', 2.5, 10,
-		         '2026-06-01T00:00:00Z', '2026-01-01T00:00:00Z')`, uuid.New())
+	err := insertPrice(t, db, priceRow{
+		model: "gpt-6-astra", provider: "openai", kind: "input", rate: "10",
+		from: "2026-06-01T00:00:00Z", until: "2026-01-01T00:00:00Z",
+	})
 	requirePgError(t, err, codeCheckViolation, "validity_ordered")
 }
 
 func TestNegativeRateIsRejected(t *testing.T) {
 	db := newTestDB(t)
-	_, err := db.Pool().Exec(t.Context(),
-		`INSERT INTO model_prices
-		   (id, model, provider, input_usd_per_mtok, output_usd_per_mtok, effective_from)
-		 VALUES ($1, 'gpt-4o', 'openai', -1, 10, '2026-01-01T00:00:00Z')`, uuid.New())
-	requirePgError(t, err, codeCheckViolation, "rates_non_negative")
+	err := insertPrice(t, db, priceRow{
+		model: "gpt-6-astra", provider: "openai", kind: "input", rate: "-1",
+		from: "2026-01-01T00:00:00Z",
+	})
+	requirePgError(t, err, codeCheckViolation, "rate_non_negative")
 }
 
 func TestInvertedTierBoundsAreRejected(t *testing.T) {
 	db := newTestDB(t)
-	_, err := db.Pool().Exec(t.Context(),
-		`INSERT INTO model_prices
-		   (id, model, provider, input_usd_per_mtok, output_usd_per_mtok,
-		    input_tokens_from, input_tokens_to, effective_from)
-		 VALUES ($1, 'gpt-4o', 'openai', 2.5, 10, 200000, 1000, '2026-01-01T00:00:00Z')`,
-		uuid.New())
+	err := insertPrice(t, db, priceRow{
+		model: "gpt-6-astra", provider: "openai", kind: "input", rate: "10",
+		from: "2026-01-01T00:00:00Z", tierFrom: 200000, tierTo: int64(1000),
+	})
 	requirePgError(t, err, codeCheckViolation, "tier_bounds")
 }
 
@@ -532,3 +517,195 @@ func seedKey(t *testing.T, db *DB, hash []byte) uuid.UUID {
 }
 
 var _ = pgx.ErrNoRows // keep the pgx import meaningful for later tests
+
+// --- long-format pricing --------------------------------------------------
+
+type priceRow struct {
+	model    string
+	provider string
+	kind     string
+	rate     string
+	from     any
+	until    any
+	tierFrom int64
+	tierTo   any
+	tier     string
+}
+
+func insertPrice(t *testing.T, db *DB, r priceRow) error {
+	t.Helper()
+	if r.from == nil {
+		r.from = "2026-01-01T00:00:00Z"
+	}
+	if r.tier == "" {
+		r.tier = "standard"
+	}
+	_, err := db.Pool().Exec(t.Context(),
+		`INSERT INTO model_prices
+		   (id, model, provider, token_kind, service_tier, usd_per_mtok,
+		    input_tokens_from, input_tokens_to, effective_from, effective_until,
+		    source_url, fetched_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'https://example.test/pricing', now())`,
+		uuid.New(), r.model, r.provider, r.kind, r.tier, r.rate,
+		r.tierFrom, r.tierTo, r.from, r.until)
+	return err
+}
+
+// Each billing class is its own row, so a provider inventing one costs a
+// line in the CHECK rather than a column migration.
+func TestEveryTokenKindIsAccepted(t *testing.T) {
+	db := newTestDB(t)
+	for _, kind := range []string{
+		"input", "output", "cached_read",
+		"cache_write_5m", "cache_write_1h",
+		"reasoning", "audio_input", "audio_output",
+	} {
+		if err := insertPrice(t, db, priceRow{
+			model: "some-model", provider: "openai", kind: kind, rate: "1",
+		}); err != nil {
+			t.Errorf("token kind %q must be accepted: %v", kind, err)
+		}
+	}
+}
+
+func TestUnknownTokenKindIsRejected(t *testing.T) {
+	db := newTestDB(t)
+	err := insertPrice(t, db, priceRow{
+		model: "some-model", provider: "openai", kind: "vibes", rate: "1",
+	})
+	requirePgError(t, err, codeCheckViolation, "token_kind_check")
+}
+
+// Two kinds of the same model over the same period are not an overlap: they
+// are the ordinary case, one row per billing class.
+func TestDifferentKindsOfSameModelCoexist(t *testing.T) {
+	db := newTestDB(t)
+	for _, kind := range []string{"input", "output", "cached_read", "cache_write_5m", "cache_write_1h"} {
+		if err := insertPrice(t, db, priceRow{
+			model: "claude-sonnet-5", provider: "anthropic", kind: kind, rate: "2",
+		}); err != nil {
+			t.Fatalf("kind %q: %v", kind, err)
+		}
+	}
+	// But the same kind twice over the same window still overlaps.
+	err := insertPrice(t, db, priceRow{
+		model: "claude-sonnet-5", provider: "anthropic", kind: "input", rate: "3",
+	})
+	requirePgError(t, err, codeExclusionViolation, "no_overlap")
+}
+
+// A rate with no traceable source is a rate nobody can defend.
+func TestPriceRequiresASource(t *testing.T) {
+	db := newTestDB(t)
+	_, err := db.Pool().Exec(t.Context(),
+		`INSERT INTO model_prices
+		   (id, model, provider, token_kind, usd_per_mtok, effective_from, source_url, fetched_at)
+		 VALUES ($1, 'm', 'openai', 'input', 1, now(), '', now())`, uuid.New())
+	requirePgError(t, err, codeCheckViolation, "source_url_present")
+
+	_, err = db.Pool().Exec(t.Context(),
+		`INSERT INTO model_prices
+		   (id, model, provider, token_kind, usd_per_mtok, effective_from, fetched_at)
+		 VALUES ($1, 'm', 'openai', 'input', 1, now(), now())`, uuid.New())
+	requirePgError(t, err, codeNotNullViolation, "")
+}
+
+// The 2027 Gemini Flash increase is a dated repricing, which is exactly what
+// effective_from exists for: the same kind, two windows, no overlap.
+func TestTimeBoxedRepricingIsExpressible(t *testing.T) {
+	db := newTestDB(t)
+	if err := insertPrice(t, db, priceRow{
+		model: "gemini-3.8-flash", provider: "google", kind: "input", rate: "0.75",
+		from: "2026-01-01T00:00:00Z", until: "2027-01-01T00:00:00Z",
+	}); err != nil {
+		t.Fatalf("current rate: %v", err)
+	}
+	if err := insertPrice(t, db, priceRow{
+		model: "gemini-3.8-flash", provider: "google", kind: "input", rate: "1.50",
+		from: "2027-01-01T00:00:00Z",
+	}); err != nil {
+		t.Errorf("a scheduled future rate must be expressible: %v", err)
+	}
+}
+
+// --- token_detail ---------------------------------------------------------
+
+func TestTokenDetailMustBeAnObject(t *testing.T) {
+	db := newTestDB(t)
+	keyID := seedKey(t, db, nil)
+
+	_, err := db.Pool().Exec(t.Context(),
+		`INSERT INTO usage_records
+		   (id, key_id, request_id, requested_model, provider, window_start,
+		    usage_source, status_code, token_detail)
+		 VALUES ($1, $2, 'r', 'm', 'openai', current_date, 'provider', 200, '[1,2]')`,
+		uuid.New(), keyID)
+	requirePgError(t, err, codeCheckViolation, "token_detail_is_object")
+}
+
+// The aggregates exist for reporting; the detail is the source of truth for
+// cost. This asserts the relationship the writer must maintain.
+func TestAggregatesReconstructTokenDetail(t *testing.T) {
+	db := newTestDB(t)
+	keyID := seedKey(t, db, nil)
+
+	detail := `{"input":1000,"cached_read":500,"cache_write_5m":200,
+	            "cache_write_1h":300,"output":700,"reasoning":250}`
+	if _, err := db.Pool().Exec(t.Context(),
+		`INSERT INTO usage_records
+		   (id, key_id, request_id, requested_model, provider, window_start,
+		    usage_source, status_code, token_detail,
+		    input_tokens, cached_read_tokens, cache_write_tokens,
+		    output_tokens, reasoning_tokens)
+		 VALUES ($1, $2, 'r', 'm', 'anthropic', current_date, 'provider', 200, $3,
+		         1000, 500, 500, 700, 250)`,
+		uuid.New(), keyID, detail); err != nil {
+		t.Fatalf("inserting: %v", err)
+	}
+
+	var mismatches int
+	err := db.Pool().QueryRow(t.Context(), `
+		SELECT count(*) FROM usage_records
+		 WHERE input_tokens       <> COALESCE((token_detail->>'input')::bigint, 0)
+		    OR cached_read_tokens <> COALESCE((token_detail->>'cached_read')::bigint, 0)
+		    OR output_tokens      <> COALESCE((token_detail->>'output')::bigint, 0)
+		    OR reasoning_tokens   <> COALESCE((token_detail->>'reasoning')::bigint, 0)
+		    OR cache_write_tokens <> COALESCE((token_detail->>'cache_write_5m')::bigint, 0)
+		                           + COALESCE((token_detail->>'cache_write_1h')::bigint, 0)`).Scan(&mismatches)
+	if err != nil {
+		t.Fatalf("reconciling: %v", err)
+	}
+	if mismatches != 0 {
+		t.Errorf("%d records whose aggregates do not match their detail", mismatches)
+	}
+}
+
+// The same model and kind at two service tiers is the ordinary case, not an
+// overlap: Google prices Batch and Flex below Standard, and notably does not
+// discount cache reads on either.
+func TestDifferentServiceTiersCoexist(t *testing.T) {
+	db := newTestDB(t)
+	for _, tier := range []string{"standard", "flex", "priority", "fast", "batch", "geo_us"} {
+		if err := insertPrice(t, db, priceRow{
+			model: "gpt-6-astra", provider: "openai", kind: "input",
+			rate: "10", tier: tier,
+		}); err != nil {
+			t.Errorf("service tier %q must be accepted: %v", tier, err)
+		}
+	}
+	// The same tier twice over the same window is still an overlap.
+	err := insertPrice(t, db, priceRow{
+		model: "gpt-6-astra", provider: "openai", kind: "input",
+		rate: "20", tier: "standard",
+	})
+	requirePgError(t, err, codeExclusionViolation, "no_overlap")
+}
+
+func TestUnknownServiceTierIsRejected(t *testing.T) {
+	db := newTestDB(t)
+	err := insertPrice(t, db, priceRow{
+		model: "gpt-6-astra", provider: "openai", kind: "input",
+		rate: "10", tier: "economy",
+	})
+	requirePgError(t, err, codeCheckViolation, "service_tier_check")
+}
