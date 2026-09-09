@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/shopspring/decimal"
+
 	"github.com/DiegohNY/costlane/internal/pricing"
 )
 
@@ -108,18 +110,64 @@ func fetch(url string) pageResult {
 	return pageResult{body: string(body)}
 }
 
-// containsRate looks for the figure in several of the shapes a page might
-// print it in. This is a smoke test, not a parser: its job is to notice that
-// a number has vanished, and to say so without claiming more than it knows.
+// containsRate reports whether the page states this rate anywhere.
+//
+// It compares values rather than characters: a page printing "$12.50" and a
+// table holding "12.5" mean the same thing, while "10" and "100" do not. A
+// plain substring search gets both of those wrong in the dangerous
+// direction, reporting a rate that has vanished as still present.
 func containsRate(body, rate string) bool {
-	trimmed := strings.TrimSuffix(strings.TrimSuffix(rate, "0"), ".")
-	for _, form := range []string{rate, trimmed, "$" + rate, "$" + trimmed} {
-		if strings.Contains(body, form) {
+	want, err := decimal.NewFromString(rate)
+	if err != nil {
+		return false
+	}
+	for _, n := range numbersIn(body) {
+		if n.Equal(want) {
 			return true
 		}
 	}
 	return false
 }
+
+// numbersIn extracts every decimal literal in the text. Grouping commas are
+// dropped so that "1,050,000" reads as one number, and a trailing period is
+// treated as punctuation rather than as part of the figure.
+func numbersIn(body string) []decimal.Decimal {
+	var out []decimal.Decimal
+	var buf strings.Builder
+
+	flush := func() {
+		if buf.Len() == 0 {
+			return
+		}
+		text := strings.TrimSuffix(buf.String(), ".")
+		buf.Reset()
+		if text == "" || text == "." {
+			return
+		}
+		if d, err := decimal.NewFromString(text); err == nil {
+			out = append(out, d)
+		}
+	}
+
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		switch {
+		case c >= '0' && c <= '9':
+			buf.WriteByte(c)
+		case c == '.' && buf.Len() > 0:
+			buf.WriteByte(c)
+		case c == ',' && buf.Len() > 0 && i+1 < len(body) && isDigit(body[i+1]):
+			// A grouping separator inside a number.
+		default:
+			flush()
+		}
+	}
+	flush()
+	return out
+}
+
+func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 func report(findings []finding, pages map[string]pageResult) error {
 	sort.Slice(findings, func(i, j int) bool {
