@@ -46,6 +46,12 @@ type Config struct {
 
 	DefaultMaxTokens int
 
+	// TierGuard is the fraction of a context-pricing threshold at which a
+	// reservation prices at the higher tier. The chars/4 estimate errs
+	// downward, and crossing a threshold can double the price of the whole
+	// request, so the band is deliberately wide and one-sided.
+	TierGuard float64
+
 	ReaperInterval  time.Duration
 	ReadTimeout     time.Duration
 	MaxQueryWindow  time.Duration
@@ -101,6 +107,7 @@ func LoadFrom(look Lookup) (*Config, error) {
 	}
 
 	cfg.MaxConcurrentDrains = positiveInt(look, "COSTLANE_MAX_CONCURRENT_DRAINS", 64, fail)
+	cfg.TierGuard = fraction(look, "COSTLANE_TIER_GUARD", 0.75, fail)
 	cfg.DefaultMaxTokens = positiveInt(look, "COSTLANE_DEFAULT_MAX_TOKENS", 4096, fail)
 
 	cfg.LogPrompts = boolean(look, "COSTLANE_LOG_PROMPTS", false, fail)
@@ -138,7 +145,7 @@ func (c *Config) String() string {
 		c.ProviderTimeout, c.DrainTimeout, c.ReservationTTL)
 	fmt.Fprintf(&b, "disconnect_policy=%s max_concurrent_drains=%d ",
 		c.DisconnectPolicy, c.MaxConcurrentDrains)
-	fmt.Fprintf(&b, "default_max_tokens=%d ", c.DefaultMaxTokens)
+	fmt.Fprintf(&b, "default_max_tokens=%d tier_guard=%g ", c.DefaultMaxTokens, c.TierGuard)
 	fmt.Fprintf(&b, "reaper_interval=%s read_timeout=%s max_query_window=%s shutdown_timeout=%s ",
 		c.ReaperInterval, c.ReadTimeout, c.MaxQueryWindow, c.ShutdownTimeout)
 	fmt.Fprintf(&b, "log_prompts=%t migrate_on_boot=%t", c.LogPrompts, c.MigrateOnBoot)
@@ -220,6 +227,26 @@ func positiveInt(look Lookup, key string, def int, fail func(string, ...any)) in
 		return def
 	}
 	return n
+}
+
+// fraction reads a value in (0, 1]. A guard factor outside that range is a
+// configuration error: zero would disable the guard silently, and above one
+// would push every request to the highest tier.
+func fraction(look Lookup, key string, def float64, fail func(string, ...any)) float64 {
+	raw, ok := look(key)
+	if !ok || raw == "" {
+		return def
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		fail("%s is not a valid number (%q): %v", key, raw, err)
+		return def
+	}
+	if v <= 0 || v > 1 {
+		fail("%s must be greater than 0 and at most 1, got %g", key, v)
+		return def
+	}
+	return v
 }
 
 func boolean(look Lookup, key string, def bool, fail func(string, ...any)) bool {

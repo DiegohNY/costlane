@@ -95,24 +95,34 @@ Goal: the schema exists and its invariants are enforced by Postgres.
 
 Goal: given a model and a token count, the exact cost — or an explicit refusal.
 
-- [ ] YAML schema for prices and aliases
-- [ ] `pricing/*.yaml` seeded for OpenAI, Anthropic, Google, with source_url
+- [x] YAML schema for prices and aliases
+- [x] `pricing/*.yaml` seeded for OpenAI, Anthropic, Google, with source_url
 - [ ] Boot loader YAML to Postgres, idempotent, fails on conflicting rewrite
-- [ ] In-memory snapshot via atomic.Pointer, replaced wholesale
+- [x] In-memory snapshot via atomic.Pointer, replaced wholesale
 - [ ] `POST /admin/pricing/reload`
-- [ ] Exact model matching — no startswith, no substring
-- [ ] Alias resolution, historised, exact at each step
-- [ ] Context-tier selection (input_tokens_from / _to)
-- [ ] Four-way cost arithmetic (input, cached_read, cache_write, output)
-- [ ] OpenAI caching normalisation: subtract cached_tokens from prompt_tokens
-- [ ] Anthropic caching normalisation: separate cache_read / cache_creation
-- [ ] Fail-closed: missing row or null rate means unknown, never free
-- [ ] TEST: cost arithmetic across all four token classes
-- [ ] TEST: `gpt-4` must not match `gpt-4o`
-- [ ] TEST: alias resolving to different snapshots at different dates
-- [ ] TEST: tier boundary, exactly at the edge
-- [ ] TEST: caching normalisation reconciles with each provider's total
-- [ ] TEST: unknown model yields unknown, never zero cost
+- [x] Exact model matching — no startswith, no substring
+- [x] Alias resolution, historised, exact at each step
+- [x] Context-tier selection (input_tokens_from / _to)
+- [x] Four-way cost arithmetic (input, cached_read, cache_write, output)
+- [x] OpenAI caching normalisation: subtract cached_tokens from prompt_tokens
+- [x] Anthropic caching normalisation: separate cache_read / cache_creation
+- [x] Fail-closed: missing row or null rate means unknown, never free
+- [x] TEST: cost arithmetic across all four token classes
+- [x] TEST: `gpt-4` must not match `gpt-4o`
+- [x] TEST: alias resolving to different snapshots at different dates
+- [x] TEST: tier boundary, exactly at the edge
+- [x] TEST: caching normalisation reconciles with each provider's total
+- [x] TEST: unknown model yields unknown, never zero cost
+- [x] Long-format price rows: one per (model, provider, kind, tier, range, window)
+- [x] `service_tier` in the key and the EXCLUDE; seed is standard only
+- [x] Google normalisation: subtract cached, ADD thoughts (the only two-way provider)
+- [x] Anthropic cache-write TTL split (5m and 1h are priced 1.6x apart)
+- [x] `partially_priced`: charge the priced kinds, name the unpriced ones
+- [x] Tier guard on reserve (`COSTLANE_TIER_GUARD`, default 0.75)
+- [x] Decimal throughout; property test proves no drift over 2000 combinations
+- [x] Reload is all-or-nothing; a broken file leaves the old table serving
+- [x] TEST: every seeded rate asserted against the figure read from the provider page
+- [x] TEST: concurrent reads during reload never see a half-applied table
 - [ ] CI: weekly pricing source verification, opens an issue, never fails the build
 - [ ] CI: unreachable page is reported as unverifiable, not as verified
 - [ ] REVIEW CHECKPOINT — wait for approval

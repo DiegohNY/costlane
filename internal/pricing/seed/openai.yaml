@@ -1,0 +1,75 @@
+# OpenAI rates, standard service tier.
+#
+# Every rate here was read from the pages cited in source_url on the date in
+# fetched_at. Nothing is derived, inferred, or remembered.
+#
+# Context pricing is a CLIFF, not a graduated tier. From the model pages:
+# "Prompts with more than 272K input tokens are priced at 2x input and cache
+# rates and 1.5x output for the full request." Crossing 272,000 INPUT tokens
+# reprices the whole request, including the first 272K. The tier is therefore
+# selected on the input count and applied to every kind, output included.
+#
+# Note the asymmetry between models: the gpt-6-astra page says "2x input and
+# cache rates", while the gpt-5.6-sol and gpt-5.6-terra pages say only
+# "2x input and 1.5x output" with no mention of cache. That difference is
+# reproduced faithfully below: Astra has long-context cache rows, the others
+# do not. A missing row means unpriced, never free.
+provider: openai
+models:
+  - model: gpt-6-astra
+    source_url: https://developers.openai.com/api/docs/models/gpt-6-astra
+    fetched_at: 2026-09-09T00:00:00Z
+    context_window: 1050000
+    max_output_tokens: 128000
+    prices:
+      # Short context: up to 272,000 input tokens.
+      - {kind: input,          tier_to: 272000, usd_per_mtok: "10"}
+      - {kind: cached_read,    tier_to: 272000, usd_per_mtok: "1"}
+      - {kind: cache_write_5m, tier_to: 272000, usd_per_mtok: "12.50"}
+      - {kind: output,         tier_to: 272000, usd_per_mtok: "50"}
+      # Long context: above 272,000 input tokens. Cache rates double here,
+      # which this model's page states explicitly. The figures themselves are
+      # published in the pricing page's Long context columns, so these rows
+      # cite that page rather than the model page.
+      - {kind: input,          tier_from: 272000, usd_per_mtok: "20", source_url: https://developers.openai.com/api/docs/pricing}
+      - {kind: cached_read,    tier_from: 272000, usd_per_mtok: "2",  source_url: https://developers.openai.com/api/docs/pricing}
+      - {kind: cache_write_5m, tier_from: 272000, usd_per_mtok: "25", source_url: https://developers.openai.com/api/docs/pricing}
+      - {kind: output,         tier_from: 272000, usd_per_mtok: "75", source_url: https://developers.openai.com/api/docs/pricing}
+
+  - model: gpt-5.6-sol
+    source_url: https://developers.openai.com/api/docs/models/gpt-5.6-sol
+    fetched_at: 2026-09-09T00:00:00Z
+    context_window: 1050000
+    max_output_tokens: 128000
+    # The model page states these rates are promotional, "available at least
+    # through November 21, 2026". They carry no effective_until because the
+    # end date is not a repricing announcement; the weekly source check is
+    # what will catch the change.
+    prices:
+      - {kind: input,          tier_to: 272000, usd_per_mtok: "4"}
+      - {kind: cached_read,    tier_to: 272000, usd_per_mtok: "0.40"}
+      - {kind: cache_write_5m, tier_to: 272000, usd_per_mtok: "5"}
+      - {kind: output,         tier_to: 272000, usd_per_mtok: "20"}
+      # This page does not state that cache rates double above the threshold,
+      # so no cache rows are declared here. Cached usage on a long-context
+      # request is unpriced rather than guessed.
+      - {kind: input,          tier_from: 272000, usd_per_mtok: "8",  source_url: https://developers.openai.com/api/docs/pricing}
+      - {kind: output,         tier_from: 272000, usd_per_mtok: "30", source_url: https://developers.openai.com/api/docs/pricing}
+
+  - model: gpt-5.6-terra
+    source_url: https://developers.openai.com/api/docs/models/gpt-5.6-terra
+    fetched_at: 2026-09-09T00:00:00Z
+    context_window: 1050000
+    max_output_tokens: 128000
+    prices:
+      - {kind: input,          tier_to: 272000, usd_per_mtok: "2"}
+      - {kind: cached_read,    tier_to: 272000, usd_per_mtok: "0.20"}
+      - {kind: cache_write_5m, tier_to: 272000, usd_per_mtok: "2.50"}
+      - {kind: output,         tier_to: 272000, usd_per_mtok: "12"}
+      - {kind: input,          tier_from: 272000, usd_per_mtok: "4",  source_url: https://developers.openai.com/api/docs/pricing}
+      - {kind: output,         tier_from: 272000, usd_per_mtok: "18", source_url: https://developers.openai.com/api/docs/pricing}
+
+# No aliases. OpenAI's pricing page lists dated snapshots only for legacy
+# models; the current flagships are published under bare ids with no
+# documented alias, so none is invented here.
+aliases: []

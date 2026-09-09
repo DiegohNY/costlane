@@ -1,0 +1,14 @@
+{
+  "_comment": "The nested TTL breakdown does not sum to the flat cache_creation_input_tokens total. A normaliser must degrade rather than invent a number.",
+  "id": "msg-fixture-broken",
+  "model": "claude-sonnet-5",
+  "usage": {
+    "input_tokens": 500,
+    "output_tokens": 100,
+    "cache_creation_input_tokens": 1000,
+    "cache_creation": {
+      "ephemeral_5m_input_tokens": 148,
+      "ephemeral_1h_input_tokens": 100
+    }
+  }
+}

@@ -1,0 +1,56 @@
+name: pricing sources
+
+# Weekly, and never blocking. A red build caused by a provider restyling its
+# pricing page is noise that teaches people to ignore CI; an issue is a
+# prompt to go and look.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  verify:
+    name: verify published rates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+
+      - name: check each rate against its source page
+        id: check
+        continue-on-error: true
+        run: |
+          go run ./cmd/pricingcheck > report.md 2>&1
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+
+      - name: read the report
+        if: always()
+        id: report
+        run: |
+          {
+            echo 'body<<REPORT_EOF'
+            cat report.md 2>/dev/null || echo "The checker produced no output."
+            echo REPORT_EOF
+          } >> "$GITHUB_OUTPUT"
+
+      - name: open an issue when something needs a human
+        if: steps.check.outcome == 'failure'
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const body = process.env.REPORT;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Pricing sources need attention (${new Date().toISOString().slice(0,10)})`,
+              body,
+              labels: ['pricing'],
+            });
+        env:
+          REPORT: ${{ steps.report.outputs.body }}
