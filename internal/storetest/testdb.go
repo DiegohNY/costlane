@@ -34,7 +34,7 @@ var (
 // startPostgres brings up one container for the whole test binary and hands
 // each test its own database inside it, which is far cheaper than a
 // container per test while keeping the tests isolated.
-func startPostgres(t *testing.T) string {
+func startPostgres(t testing.TB) string {
 	t.Helper()
 	containerOnce.Do(func() {
 		if !dockerAvailable() {
@@ -81,7 +81,7 @@ func dockerAvailable() bool {
 // PostgresDSN returns a connection string to the shared test container,
 // skipping the calling test when Docker is unavailable. Use it when a test
 // needs a database that NewTestDB's migrations have not been applied to.
-func PostgresDSN(t *testing.T) string {
+func PostgresDSN(t testing.TB) string {
 	t.Helper()
 	return startPostgres(t)
 }
@@ -112,10 +112,24 @@ func NewEmptyDB(t *testing.T) *store.DB {
 	return db
 }
 
+// NewBenchDB returns a fully migrated database for a benchmark.
+//
+// It mirrors NewTestDB but takes a testing.TB, so benchmarks and tests share
+// one container rather than each starting their own.
+func NewBenchDB(tb testing.TB) *store.DB {
+	tb.Helper()
+	return newDB(tb)
+}
+
 // NewTestDB returns a fully migrated database, private to the calling test.
 // It lives outside a _test.go file so that packages built on top of the
 // store can use the same harness rather than inventing their own.
 func NewTestDB(t *testing.T) *store.DB {
+	t.Helper()
+	return newDB(t)
+}
+
+func newDB(t testing.TB) *store.DB {
 	t.Helper()
 	dsn := startPostgres(t)
 

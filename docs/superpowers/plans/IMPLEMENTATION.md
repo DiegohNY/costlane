@@ -160,29 +160,36 @@ Goal: a key authenticates in one round-trip and revocation takes effect at once.
 
 Goal: a thousand concurrent requests never breach one counter.
 
-- [ ] Fused reserve statement: auth + allowed_models + rotation + reserve
-- [ ] Lazy UTC month rotation inside the reserve
-- [ ] `limit_usd IS NULL` means unlimited
-- [ ] Reservation INSERT in the same transaction, window from RETURNING
-- [ ] Diagnostic SELECT on zero rows: classify 401 / 402 / 403
-- [ ] Cheap reserve estimate: chars/4 + max_tokens (or 4096 default)
-- [ ] Settle: one transaction, state always terminal
-- [ ] Settle reads old state via `settled_after_expiry` in SET, not RETURNING state
-- [ ] Settle releases reserved conditionally (no double release after expiry)
-- [ ] Settle adds to spent only when window matches
-- [ ] Overshoot flag + metric; no `max_tokens` injection
-- [ ] Reaper: single CTE, state change and release together
-- [ ] Reaper uses FOR UPDATE SKIP LOCKED, safe for N replicas
-- [ ] Three reconciliation queries + `GET /admin/reconcile`
-- [ ] TEST: N concurrent reserves on one key; spent+reserved <= limit; exact success count
-- [ ] TEST: double settle counts once
-- [ ] TEST: settle after expiry — no double release, flag set
-- [ ] TEST: retried settle after crash does not double-count
-- [ ] TEST: reaper versus settle race, exactly one wins
-- [ ] TEST: reservation spanning month boundary lands in its own window
-- [ ] TEST: unlimited key (NULL limit) is never refused
-- [ ] TEST: all three reconciliations return zero after concurrent load
-- [ ] BENCH: `BenchmarkReserveContention`
+- [x] Fused reserve statement: auth + allowed_models + rotation + reserve
+- [x] Lazy UTC month rotation inside the reserve
+- [x] `limit_usd IS NULL` means unlimited
+- [x] Reservation INSERT in the same transaction, window from RETURNING
+- [x] Diagnostic SELECT on zero rows: classify 401 / 402 / 403
+- [x] Cheap reserve estimate: chars/4 + max_tokens (or 4096 default)
+- [x] Settle: one transaction, state always terminal
+- [x] Settle reads old state via `settled_after_expiry` in SET, not RETURNING state
+- [x] Settle releases reserved conditionally (no double release after expiry)
+- [x] Settle adds to spent only when window matches
+- [x] Overshoot flag + metric; no `max_tokens` injection
+- [x] Reaper: single CTE, state change and release together
+- [x] Reaper uses FOR UPDATE SKIP LOCKED, safe for N replicas
+- [x] Three reconciliation queries as functions (the admin endpoint lands in F7)
+- [x] TEST: N concurrent reserves on one key; spent+reserved <= limit; exact success count
+- [x] TEST: double settle counts once
+- [x] TEST: settle after expiry — no double release, flag set
+- [x] TEST: retried settle after crash does not double-count
+- [x] TEST: reaper versus settle race, exactly one wins
+- [x] TEST: reservation spanning month boundary lands in its own window
+- [x] TEST: unlimited key (NULL limit) is never refused
+- [x] TEST: all three reconciliations return zero after concurrent load
+- [x] READ COMMITTED set explicitly on all three transactions, asserted by test
+- [x] Settle runs on a detached context, so a disconnected client cannot abort it
+- [x] Reaper locks budget rows in key order, retries on deadlock (SQLSTATE 40P01)
+- [x] TEST: two reapers over 50 keys for 20 iterations, no unhandled deadlock
+- [x] TEST: deliberately broken reserve/settle make the concurrency tests fail
+- [x] Reaper goroutine with jittered interval, finishes its batch on SIGTERM
+- [x] 402 body carries limit, spent, reserved and window_resets_at
+- [x] BENCH: `BenchmarkReserveContention` (0.72ms contended, 0.28ms distinct keys)
 - [ ] REVIEW CHECKPOINT — wait for approval
 
 ## F5 — Fake provider and proxy, non-streaming
