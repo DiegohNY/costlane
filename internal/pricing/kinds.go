@@ -5,6 +5,8 @@ package pricing
 // struct fields, and a new one costs a constant plus a row.
 type Kind string
 
+// The billing classes the supported providers publish rates for. Audio is
+// declared but not yet seeded.
 const (
 	KindInput        Kind = "input"
 	KindOutput       Kind = "output"
@@ -38,6 +40,9 @@ func (k Kind) Valid() bool {
 // reads.
 type Tier string
 
+// The service tiers providers price separately. Only standard is seeded in
+// v1; the rest exist so a rate card can arrive as rows rather than as a
+// migration.
 const (
 	TierStandard Tier = "standard"
 	TierFlex     Tier = "flex"
