@@ -66,6 +66,11 @@ type Config struct {
 
 	MaxBodyBytes int64
 
+	// StreamWriteTimeout bounds one write to a streaming client. Without
+	// it a reader that stops reading holds a stream and a goroutine open
+	// indefinitely.
+	StreamWriteTimeout time.Duration
+
 	// Provider credentials. Absent ones simply leave that provider
 	// unconfigured, so a deployment can run with one.
 	OpenAIKey        obs.Secret
@@ -126,6 +131,7 @@ func LoadFrom(look Lookup) (*Config, error) {
 	cfg.DefaultMaxTokens = positiveInt(look, "COSTLANE_DEFAULT_MAX_TOKENS", 4096, fail)
 
 	cfg.MaxBodyBytes = int64(positiveInt(look, "COSTLANE_MAX_BODY_BYTES", 10<<20, fail))
+	cfg.StreamWriteTimeout = duration(look, "COSTLANE_STREAM_WRITE_TIMEOUT", 30*time.Second, fail)
 
 	cfg.OpenAIKey = obs.Secret(optString(look, "COSTLANE_OPENAI_API_KEY", ""))
 	cfg.OpenAIBaseURL = optString(look, "COSTLANE_OPENAI_BASE_URL", "https://api.openai.com")
@@ -175,7 +181,8 @@ func (c *Config) String() string {
 	fmt.Fprintf(&b, "default_max_tokens=%d tier_guard=%g ", c.DefaultMaxTokens, c.TierGuard)
 	fmt.Fprintf(&b, "reaper_interval=%s read_timeout=%s max_query_window=%s shutdown_timeout=%s ",
 		c.ReaperInterval, c.ReadTimeout, c.MaxQueryWindow, c.ShutdownTimeout)
-	fmt.Fprintf(&b, "max_body_bytes=%d ", c.MaxBodyBytes)
+	fmt.Fprintf(&b, "max_body_bytes=%d stream_write_timeout=%s ",
+		c.MaxBodyBytes, c.StreamWriteTimeout)
 	fmt.Fprintf(&b, "openai_key=%v anthropic_key=%v google_key=%v ",
 		c.OpenAIKey, c.AnthropicKey, c.GoogleKey)
 	fmt.Fprintf(&b, "log_prompts=%t migrate_on_boot=%t", c.LogPrompts, c.MigrateOnBoot)

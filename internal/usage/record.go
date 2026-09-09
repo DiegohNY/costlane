@@ -43,7 +43,9 @@ type Record struct {
 	StatusCode         int
 	ErrorCode          string
 	LatencyMS          int
-	TTFTMS             int
+	// TTFTMicros is microseconds: on a fast path the whole figure is under
+	// a millisecond, and rounding would discard it exactly where it matters.
+	TTFTMicros int64
 
 	CreatedAt time.Time
 }

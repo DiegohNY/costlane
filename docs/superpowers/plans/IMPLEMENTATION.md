@@ -235,37 +235,55 @@ Goal: a request crosses the gateway and is accounted for exactly.
 
 Goal: chunks forwarded with zero buffering, counted in flight, always settled.
 
-- [ ] SSE parser, frame-level, 1 MB cap
-- [ ] Byte-for-byte forwarding, no re-serialisation on the OpenAI path
-- [ ] Anthropic and Google SSE translation to the OpenAI dialect
-- [ ] Explicit Flush per event; fail loudly when http.Flusher is absent
-- [ ] Compression disabled on the streaming path
-- [ ] `X-Accel-Buffering: no`, `Cache-Control: no-cache`
-- [ ] Per-write deadline via http.ResponseController (no global WriteTimeout)
-- [ ] Provider context: WithoutCancel + own timeout + own cancel func
-- [ ] `disconnect_policy: cancel` (default) invokes cancel on write failure
-- [ ] `disconnect_policy: drain` with its own timeout
-- [ ] Drain semaphore, default 64, configurable
-- [ ] Pump clears the writer reference once clientGone; read-only thereafter
-- [ ] Settle exactly once, in defer, on every path
-- [ ] `stream_options.include_usage` injected; final chunk stripped if unrequested
-- [ ] In-flight counting; tiktoken at settle only
-- [ ] `usage_source` recorded: provider / tokenizer / estimate
-- [ ] `ttft_ms` recorded
-- [ ] SSE error event when a stream fails after 200 headers
-- [ ] TEST: happy stream, exact usage, `usage_source=provider`
-- [ ] TEST: client disconnects, policy cancel — upstream cancelled, flag set
-- [ ] TEST: client disconnects, policy drain — exact usage, semaphore respected
-- [ ] TEST: provider timeout mid-stream
-- [ ] TEST: malformed chunk forwarded anyway, parse_errors > 0
-- [ ] TEST: unterminated frame beyond 1 MB, memory bounded
-- [ ] TEST: provider closes without [DONE]
-- [ ] TEST: error after 200 headers — SSE error event, status 200 + error_code
-- [ ] TEST: real socket close mid-stream (not a mock)
+- [x] SSE parser, frame-level, 1 MB cap
+- [x] Byte-for-byte forwarding, no re-serialisation on the OpenAI path
+- [x] Anthropic and Google SSE translation to the OpenAI dialect
+- [x] Explicit Flush per event; fail loudly when http.Flusher is absent
+- [x] Compression disabled on the streaming path
+- [x] `X-Accel-Buffering: no`, `Cache-Control: no-cache`
+- [x] Per-write deadline via http.ResponseController (no global WriteTimeout)
+- [x] Provider context: WithoutCancel + own timeout + own cancel func
+- [x] `disconnect_policy: cancel` (default) invokes cancel on write failure
+- [x] `disconnect_policy: drain` with its own timeout
+- [x] Drain semaphore, default 64, configurable
+- [x] Pump clears the writer reference once clientGone; read-only thereafter
+- [x] Settle exactly once, in defer, on every path
+- [x] `stream_options.include_usage` injected; final chunk stripped if unrequested
+- [x] In-flight counting; tiktoken at settle only
+- [x] `usage_source` recorded: provider / tokenizer / estimate
+- [x] TTFT recorded in microseconds (milliseconds rounded a fast path to zero)
+- [x] SSE error event when a stream fails after 200 headers
+- [x] TEST: happy stream, exact usage, `usage_source=provider`
+- [x] TEST: client disconnects, policy cancel — upstream cancelled, flag set
+- [x] TEST: client disconnects, policy drain — exact usage, semaphore respected
+- [x] TEST: provider timeout mid-stream
+- [x] TEST: malformed chunk forwarded anyway, parse_errors > 0
+- [x] TEST: unterminated frame beyond 1 MB, memory bounded
+- [x] TEST: provider closes without [DONE]
+- [x] TEST: error after 200 headers — SSE error event, status 200 + error_code
+- [x] TEST: real socket close mid-stream (not a mock)
 - [ ] TEST: verify per provider that closing the connection halts generation
-- [ ] FUZZ: SSE parser, corpus seeded from fake provider scenarios
-- [ ] CI: fuzz job, 30s budget; nightly longer
-- [ ] BENCH: `BenchmarkStreamOverhead` (TTFT and per-chunk)
+      — DEFERRED: needs real credentials against each provider. The cancel
+      policy rests on the documented behaviour that providers stop generating
+      on disconnect; until that is confirmed against live APIs, an operator who
+      wants certainty over cost can set disconnect_policy to drain.
+- [x] FUZZ: SSE parser, corpus seeded from fake provider scenarios
+- [x] CI: fuzz job, 30s budget; nightly 10m on both targets
+- [x] Streaming tool calling for translated providers, with golden stream fixtures
+- [x] Disconnect detected from the request context between chunks, not only
+      from a failed write
+- [x] Per-write deadline treats a client that stops reading as gone
+- [x] Every ResponseWriter wrapper implements Unwrap, with a test that mounts
+      the production middleware chain and proves chunks still arrive separately
+- [x] Usage chunk stripped by shape, never by position
+- [x] FUZZ: the Anthropic stream translator, 2.9M executions clean
+- [x] Stream metrics: chunks, TTFT, disconnects by policy, drains in flight,
+      semaphore wait
+- [x] Fixed: OpenAI streaming counted no tokens, because the usage chunk was
+      stripped before anything read it
+- [x] Fixed: stream accounting ran on the cancelled request context, so a
+      disconnected client left no usage record at all
+- [x] BENCH: stream pump ~1.1us per chunk, frame reader 271 MB/s
 - [ ] REVIEW CHECKPOINT — wait for approval
 
 ## F7 — Usage pipeline, read API, observability

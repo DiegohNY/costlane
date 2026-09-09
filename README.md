@@ -4,8 +4,8 @@ costlane — an LLM gateway that meters tokens, costs and budgets per key.
 Drop-in OpenAI-compatible.
 
 **Status: under construction.** The gateway proxies, meters and enforces
-budgets for non-streaming requests today. Streaming, the read API and the
-published benchmarks are still to come; see the
+budgets today, streaming included. The read API and the published benchmarks
+are still to come; see the
 [implementation plan](docs/superpowers/plans/IMPLEMENTATION.md).
 
 ## What it will do
@@ -56,6 +56,15 @@ rather than under-reserved.
 computed cannot be capped, and letting it through would be untracked spend.
 On a key with no limit the request proceeds and is recorded with a null
 cost — unknown, never zero.
+
+**Streaming forwards chunks as they arrive.** There is no buffer between
+reading a chunk and writing it, and every response carries
+`X-Accel-Buffering: no` so that nothing in front of the gateway reintroduces
+one. When a client disconnects mid-stream the upstream call is cancelled by
+default, because providers stop generating on disconnect and draining to
+learn an exact figure means paying for tokens nobody will read. Set a key's
+`disconnect_policy` to `drain` to trade that cost for exactness. Either way
+the tokens already produced are accounted for.
 
 **Every response carries its own cost.**
 
