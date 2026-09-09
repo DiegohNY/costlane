@@ -73,12 +73,20 @@ func run() error {
 
 	proxyOpts := proxy.Options{
 		DB: db, Router: router, Pricing: prices, Logger: logger,
-		MaxBodyBytes:     cfg.MaxBodyBytes,
-		DefaultMaxTokens: cfg.DefaultMaxTokens,
-		TierGuard:        cfg.TierGuard,
-		ReservationTTL:   cfg.ReservationTTL,
+		MaxBodyBytes:        cfg.MaxBodyBytes,
+		DefaultMaxTokens:    cfg.DefaultMaxTokens,
+		TierGuard:           cfg.TierGuard,
+		ReservationTTL:      cfg.ReservationTTL,
+		ProviderTimeout:     cfg.ProviderTimeout,
+		DrainTimeout:        cfg.DrainTimeout,
+		StreamWriteTimeout:  cfg.StreamWriteTimeout,
+		MaxConcurrentDrains: cfg.MaxConcurrentDrains,
+		StreamMetrics:       obs.NewStreamMetrics(),
 	}
 
+	// Every wrapper implements Unwrap, so http.ResponseController can still
+	// reach the Flusher underneath. Without that, streaming degrades into
+	// one buffered response and nothing says so.
 	server := api.New(api.Options{
 		DB:         db,
 		MasterKey:  cfg.MasterKey,
@@ -94,7 +102,7 @@ func run() error {
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           server.Handler(),
+		Handler:           proxy.WithRequestID(server.Handler()),
 		ReadHeaderTimeout: 15 * time.Second,
 		// No WriteTimeout: it would cut long streams short, and F6 sets a
 		// deadline per write instead.

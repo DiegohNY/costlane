@@ -1,0 +1,42 @@
+name: nightly fuzz
+
+# The pull-request budget is 30 seconds per target, which finds the shallow
+# problems. This is where the deeper ones surface.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: frame-reader
+            package: ./internal/proxy/
+            func: FuzzFrameReader
+          - name: stream-translator
+            package: ./internal/provider/
+            func: FuzzAnthropicStreamTranslator
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.27"
+      - name: fuzz for ten minutes
+        run: |
+          go test ${{ matrix.target.package }} -run ${{ matrix.target.func }} \
+            -fuzz ${{ matrix.target.func }} -fuzztime 10m
+      - name: keep the failing input
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.target.name }}
+          path: testdata/fuzz/

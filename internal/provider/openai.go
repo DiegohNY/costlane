@@ -97,3 +97,74 @@ func (p *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
 	}
 	return out, nil
 }
+
+// Stream forwards a streaming request.
+//
+// The dialect already matches, so frames are relayed untouched. The one edit
+// is stream_options.include_usage, added surgically so that usage arrives
+// even when the client did not ask for it — the gateway needs the figure to
+// settle, and the chunk is stripped again on the way out if the client did
+// not want it.
+func (p *OpenAI) Stream(ctx context.Context, req Request) (*Stream, error) {
+	body, clientAskedForUsage, err := ensureIncludeUsage(req.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		p.opts.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("provider: building request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+p.opts.APIKey.Expose())
+	httpReq.Header.Set("Accept", "text/event-stream")
+	for name, value := range req.PassthroughHeaders {
+		httpReq.Header.Set(name, value)
+	}
+
+	resp, err := p.opts.Client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("provider: calling openai: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return nil, &ErrUpstream{
+			StatusCode: resp.StatusCode, Body: raw,
+			RetryAfter: resp.Header.Get("Retry-After"), Native: true,
+		}
+	}
+
+	return &Stream{
+		Body:              resp.Body,
+		StatusCode:        resp.StatusCode,
+		Header:            resp.Header,
+		ProviderRequestID: resp.Header.Get("X-Request-Id"),
+		ClientWantsUsage:  clientAskedForUsage,
+	}, nil
+}
+
+// ensureIncludeUsage adds stream_options.include_usage, reporting whether the
+// client had already asked for it.
+func ensureIncludeUsage(body []byte) ([]byte, bool, error) {
+	existing, present := Field(body, "stream_options")
+	clientAsked := false
+	if present {
+		var opts struct {
+			IncludeUsage bool `json:"include_usage"`
+		}
+		if err := json.Unmarshal(existing, &opts); err == nil {
+			clientAsked = opts.IncludeUsage
+		}
+	}
+	if clientAsked {
+		return body, true, nil
+	}
+	out, err := SetField(body, "stream_options", map[string]any{"include_usage": true})
+	if err != nil {
+		return nil, false, err
+	}
+	return out, false, nil
+}

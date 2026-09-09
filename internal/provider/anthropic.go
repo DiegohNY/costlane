@@ -367,3 +367,71 @@ func anyOrNil(s string) any {
 	}
 	return s
 }
+
+// Stream forwards a streaming request, translating events as they arrive.
+//
+// Anthropic's protocol differs from OpenAI's in shape as well as in names, so
+// a translator carries the state needed to bridge them: the input token count
+// arrives first and the output count last, and tool arguments stream as
+// partial JSON under a content-block index that has to be remapped.
+func (p *Anthropic) Stream(ctx context.Context, req Request) (*Stream, error) {
+	translated, injected, err := TranslateAnthropicRequest(req.Body, p.opts.DefaultMaxTokens)
+	if err != nil {
+		return nil, err
+	}
+	translated, err = SetField(translated, "stream", true)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		p.opts.BaseURL+"/v1/messages", bytes.NewReader(translated))
+	if err != nil {
+		return nil, fmt.Errorf("provider: building request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", p.opts.APIKey.Expose())
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("Accept", "text/event-stream")
+	for name, value := range req.PassthroughHeaders {
+		httpReq.Header.Set(name, value)
+	}
+
+	resp, err := p.opts.Client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("provider: calling anthropic: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return nil, &ErrUpstream{
+			StatusCode: resp.StatusCode, Body: raw,
+			RetryAfter: resp.Header.Get("Retry-After"), Native: false,
+		}
+	}
+
+	translator := NewAnthropicStreamTranslator()
+	return &Stream{
+		Body:              resp.Body,
+		StatusCode:        resp.StatusCode,
+		Header:            resp.Header,
+		ProviderRequestID: resp.Header.Get("Request-Id"),
+		InjectedMaxTokens: injected,
+		Translate:         translator.Translate,
+		// Anthropic sends no usage chunk of its own, so one is assembled
+		// from the counts gathered across the stream.
+		TrailingChunks: func() [][]byte {
+			return [][]byte{translator.UsageChunk()}
+		},
+		Usage: func() (Counts, bool) {
+			input, cachedRead, cacheWrite, output, reported := translator.Usage()
+			return Counts{
+				"input":          int64(input),
+				"cached_read":    int64(cachedRead),
+				"cache_write_5m": int64(cacheWrite),
+				"output":         int64(output),
+			}, reported
+		},
+	}, nil
+}

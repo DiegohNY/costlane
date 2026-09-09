@@ -63,6 +63,24 @@ jobs:
       - name: go test -race (integration)
         run: go test ./internal/store/... ./internal/api/... ./internal/budget/... ./internal/proxy/... -race -timeout 20m -v
 
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      # A short budget on every PR catches the obvious; the nightly run
+      # goes deeper. Both targets parse input from a third party, which is
+      # the case fuzzing exists for.
+      - name: fuzz the SSE frame reader
+        run: go test ./internal/proxy/ -run FuzzFrameReader -fuzz FuzzFrameReader -fuzztime 30s
+      - name: fuzz the stream translator
+        run: |
+          go test ./internal/provider/ -run FuzzAnthropicStreamTranslator \
+            -fuzz FuzzAnthropicStreamTranslator -fuzztime 30s
+
   build:
     name: build
     runs-on: ubuntu-latest

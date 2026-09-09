@@ -43,6 +43,12 @@ type Options struct {
 	MaxBodyBytes     int64
 	DefaultMaxTokens int
 
+	ProviderTimeout     time.Duration
+	DrainTimeout        time.Duration
+	StreamWriteTimeout  time.Duration
+	MaxConcurrentDrains int
+	StreamMetrics       StreamMetrics
+
 	// PassthroughHeaderPrefixes names request headers that may be relayed
 	// upstream. It is empty in production; tests set it so a fake provider
 	// can be driven end to end.
@@ -67,7 +73,8 @@ type Metrics interface {
 
 // Handler serves chat completions.
 type Handler struct {
-	opts Options
+	opts   Options
+	drains ChannelSemaphore
 }
 
 // New builds the proxy handler.
@@ -81,7 +88,27 @@ func New(opts Options) *Handler {
 	if opts.ReservationTTL == 0 {
 		opts.ReservationTTL = 6 * time.Minute
 	}
-	return &Handler{opts: opts}
+	if opts.ProviderTimeout == 0 {
+		opts.ProviderTimeout = 5 * time.Minute
+	}
+	if opts.StreamWriteTimeout == 0 {
+		opts.StreamWriteTimeout = 30 * time.Second
+	}
+	if opts.MaxConcurrentDrains == 0 {
+		opts.MaxConcurrentDrains = 64
+	}
+	return &Handler{opts: opts, drains: NewSemaphore(opts.MaxConcurrentDrains)}
+}
+
+// drainTimeout prefers a per-key setting over the global default.
+func drainTimeout(perKeyMS *int, fallback time.Duration) time.Duration {
+	if perKeyMS != nil && *perKeyMS > 0 {
+		return time.Duration(*perKeyMS) * time.Millisecond
+	}
+	if fallback > 0 {
+		return fallback
+	}
+	return 60 * time.Second
 }
 
 // request is the little the proxy needs to read from a body it otherwise
@@ -129,14 +156,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"model is required")
 		return
 	}
-	if req.Stream {
-		// Streaming arrives in F6. Refusing plainly beats silently
-		// answering a different question.
-		api.WriteError(w, http.StatusNotImplemented, api.ErrorTypeInvalidRequest,
-			"streaming is not yet supported by this build")
-		return
-	}
-
 	table := h.opts.Pricing.Table()
 	now := time.Now().UTC()
 
@@ -207,6 +226,21 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
+
+	if req.Stream {
+		h.serveStream(w, r, streamInput{
+			body: body, bareModel: bareModel, canonicalModel: canonical,
+			maxTokens: req.MaxTokens, upstream: upstream,
+			reservationID: res.ReservationID, keyID: res.KeyID,
+			windowStart: res.WindowStart, requestID: requestID,
+			requestedModel: req.Model,
+			drain:          res.DisconnectPolicy == "drain",
+			drainTimeout:   drainTimeout(res.DrainTimeoutMS, h.opts.DrainTimeout),
+			started:        started,
+		})
+		settled = true
+		return
+	}
 
 	out, err := upstream.Complete(r.Context(), provider.Request{
 		Body: body, Model: bareModel, Stream: false, MaxTokens: req.MaxTokens,
@@ -334,7 +368,12 @@ func (h *Handler) recordUsage(ctx context.Context, in usageInput) {
 		record.CostUSD = &cost
 	}
 
-	if err := h.opts.DB.WriteUsageRecord(ctx, record); err != nil && h.opts.Logger != nil {
+	// Detached: a client that disconnected after the provider replied has
+	// still consumed tokens, and its record must survive the cancellation.
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+
+	if err := h.opts.DB.WriteUsageRecord(writeCtx, record); err != nil && h.opts.Logger != nil {
 		h.opts.Logger.Error("writing the usage record failed",
 			"error", err, "request_id", in.requestID)
 	}
