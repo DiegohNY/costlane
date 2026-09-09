@@ -63,24 +63,32 @@ API and comparing field by field.
 
 Goal: the schema exists and its invariants are enforced by Postgres.
 
-- [ ] goose as a library, `.sql` files via `embed.FS`
-- [ ] Advisory lock around migration application
-- [ ] `COSTLANE_MIGRATE_ON_BOOT` flag (default true)
-- [ ] Migration: `CREATE EXTENSION btree_gist` (annotated; may need privileges)
-- [ ] Migration: `virtual_keys` per spec §7.3
-- [ ] Migration: `key_budgets` per spec §5.2
-- [ ] Migration: `budget_reservations` + partial index on pending
-- [ ] Migration: `model_prices` + EXCLUDE constraint per spec §6.1
-- [ ] Migration: `model_aliases` + EXCLUDE constraint per spec §6.2
-- [ ] Migration: `usage_records`, BRIN on created_at, btree on (key_id, created_at)
-- [ ] Migration: `request_payloads` (separate table, droppable)
-- [ ] Separate read/write pools; `statement_timeout` on the read pool
-- [ ] testcontainers harness with automatic skip when Docker is absent
-- [ ] TEST: migrations apply cleanly from empty, and are idempotent
-- [ ] TEST: overlapping price rows rejected by EXCLUDE
-- [ ] TEST: overlapping alias rows rejected by EXCLUDE
-- [ ] TEST: two concurrent migrators, advisory lock holds
-- [ ] CI: integration job (testcontainers)
+- [x] goose as a library, `.sql` files via `embed.FS`
+- [x] Advisory lock around migration application
+- [x] `COSTLANE_MIGRATE_ON_BOOT` flag (default true), wired in main and tested
+- [x] Migration: `CREATE EXTENSION btree_gist` (annotated; may need privileges)
+- [x] Migration: `virtual_keys` per spec §7.3
+- [x] Migration: `key_budgets` per spec §5.2
+- [x] Migration: `budget_reservations` + partial index on pending
+- [x] Migration: `model_prices` + EXCLUDE constraint per spec §6.1
+- [x] Migration: `model_aliases` + EXCLUDE constraint per spec §6.2
+- [x] Migration: `usage_records`, BRIN on created_at, btree on (key_id, created_at)
+- [x] Migration: `request_payloads` (separate table, droppable)
+- [x] Separate read/write pools; `statement_timeout` on the read pool
+- [x] testcontainers harness with automatic skip when Docker is absent
+- [x] TEST: migrations apply cleanly from empty, and are idempotent
+- [x] TEST: overlapping price rows rejected by EXCLUDE
+- [x] TEST: overlapping alias rows rejected by EXCLUDE
+- [x] TEST: two concurrent migrators, advisory lock holds
+- [x] CI: integration job (testcontainers)
+- [x] CHECK constraints on every money column (reserved, spent, estimated, actual, limit)
+- [x] `state` as text + CHECK, not a Postgres enum
+- [x] Migrations split by domain, 0001-0005, one transaction each
+- [x] TEST: every down migration runs, then up again
+- [x] TEST: negative constraint tests — overlapping price, overlapping alias,
+      negative reservation, invented state, inverted range, negative rate
+- [x] Postgres pinned (17-alpine), never latest
+- [x] TEST: btree_gist installs without superuser (trusted extension since PG13)
 - [ ] REVIEW CHECKPOINT — wait for approval
 
 ## F2 — Pricing and aliases
