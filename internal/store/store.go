@@ -196,3 +196,6 @@ func ReplaceDBName(dsn, name string) string {
 	u.Path = "/" + name
 	return u.String()
 }
+
+// PingRead verifies the read pool, for the readiness check.
+func (db *DB) PingRead(ctx context.Context) error { return db.read.Ping(ctx) }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,6 +21,7 @@ import (
 	"github.com/DiegohNY/costlane/internal/provider"
 	"github.com/DiegohNY/costlane/internal/proxy"
 	"github.com/DiegohNY/costlane/internal/store"
+	"github.com/DiegohNY/costlane/internal/usage"
 )
 
 func main() {
@@ -71,8 +73,21 @@ func run() error {
 		return err
 	}
 
+	registry := obs.NewRegistry()
+	metrics := obs.NewGatewayMetrics(registry)
+
+	// The redactor knows this process's own credentials, so a provider
+	// echoing one back in an error body cannot pass it on to a client.
+	redactor := obs.NewRedactor(
+		cfg.MasterKey, cfg.OpenAIKey, cfg.AnthropicKey, cfg.GoogleKey,
+		databasePassword(cfg.DatabaseURL),
+	)
+
 	proxyOpts := proxy.Options{
 		DB: db, Router: router, Pricing: prices, Logger: logger,
+		Redactor:            redactor,
+		Metrics:             metrics,
+		LogPrompts:          cfg.LogPrompts,
 		MaxBodyBytes:        cfg.MaxBodyBytes,
 		DefaultMaxTokens:    cfg.DefaultMaxTokens,
 		TierGuard:           cfg.TierGuard,
@@ -81,24 +96,50 @@ func run() error {
 		DrainTimeout:        cfg.DrainTimeout,
 		StreamWriteTimeout:  cfg.StreamWriteTimeout,
 		MaxConcurrentDrains: cfg.MaxConcurrentDrains,
-		StreamMetrics:       obs.NewStreamMetrics(),
+		StreamMetrics:       metrics,
 	}
 
 	// Every wrapper implements Unwrap, so http.ResponseController can still
 	// reach the Flusher underneath. Without that, streaming degrades into
 	// one buffered response and nothing says so.
+	health := api.NewHealth(db, func() bool { return prices.Table() != nil })
+
 	server := api.New(api.Options{
-		DB:         db,
-		MasterKey:  cfg.MasterKey,
-		MaxDrainMS: int(cfg.ProviderTimeout.Milliseconds()),
-		Proxy:      proxy.New(proxyOpts),
-		Models:     proxy.NewModelsHandler(proxyOpts),
+		DB:             db,
+		MasterKey:      cfg.MasterKey,
+		MaxDrainMS:     int(cfg.ProviderTimeout.Milliseconds()),
+		Proxy:          proxy.New(proxyOpts),
+		Models:         proxy.NewModelsHandler(proxyOpts),
+		MaxQueryWindow: cfg.MaxQueryWindow,
+		Health:         health,
+		ReloadPricing: func(context.Context) error {
+			fsys, dir := pricing.SeedFS()
+			return prices.ReloadFS(fsys, dir)
+		},
 	})
 
-	reaper := budget.NewReaper(budget.Options{
-		DB: db, Interval: cfg.ReaperInterval, Logger: logger,
+	// Usage records leave the request path here. The buffer is bounded and
+	// falls back to a synchronous write when full: a dropped record is an
+	// accounting hole, and the loss this design accepts is a hard crash,
+	// not a slow database.
+	buffer := usage.NewBuffer(usage.BufferOptions{
+		Writer: db, Logger: logger, Metrics: metrics,
+		Capacity: cfg.UsageBufferSize, BatchSize: cfg.UsageBatchSize,
+		FlushInterval: cfg.UsageFlushInterval,
 	})
-	go reaper.Run(ctx)
+	bufferCtx, stopBuffer := context.WithCancel(context.Background())
+	// Deferred as well as called below: an early return from a failed
+	// listen would otherwise leave both goroutines running.
+	defer stopBuffer()
+	go buffer.Run(bufferCtx)
+	proxyOpts.Usage = buffer
+
+	reaper := budget.NewReaper(budget.Options{
+		DB: db, Interval: cfg.ReaperInterval, Logger: logger, Metrics: metrics,
+	})
+	reaperCtx, stopReaper := context.WithCancel(context.Background())
+	defer stopReaper()
+	go reaper.Run(reaperCtx)
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -107,6 +148,26 @@ func run() error {
 		// No WriteTimeout: it would cut long streams short, and F6 sets a
 		// deadline per write instead.
 	}
+
+	// Metrics live on their own address, so scraping never requires
+	// exposing them beside the API.
+	metricsServer := &http.Server{
+		Addr:              cfg.MetricsAddr,
+		Handler:           registry.Handler(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	go func() {
+		logger.Info("serving metrics", "addr", cfg.MetricsAddr)
+		if err := metricsServer.ListenAndServe(); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
+			logger.Error("the metrics listener stopped", "error", err)
+		}
+	}()
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = metricsServer.Shutdown(shutdown)
+	}()
 
 	errs := make(chan error, 1)
 	go func() {
@@ -122,10 +183,46 @@ func run() error {
 	case <-ctx.Done():
 	}
 
-	logger.Info("shutting down")
+	// The order below matters more than it looks.
+	//
+	// Readiness fails first, so a load balancer stops routing to this
+	// process while it can still serve what it already has. Doing it the
+	// other way round means refusing requests that were sent here
+	// precisely because we still claimed to be ready.
+	logger.Info("shutting down: reporting unready")
+	health.BeginDraining()
+	time.Sleep(cfg.DrainDelay)
+
+	// Then stop accepting, and let in-flight requests finish: each one
+	// still has a settle to run and a record to enqueue.
+	logger.Info("shutting down: waiting for in-flight requests")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
-	return httpServer.Shutdown(shutdownCtx)
+	if err := httpServer.Shutdown(shutdownCtx); err != nil {
+		logger.Error("waiting for in-flight requests", "error", err)
+	}
+
+	// Only now is it safe to stop the reaper and drain the buffer: until
+	// the last request has settled, both are still receiving work.
+	stopReaper()
+	stopBuffer()
+	if err := buffer.Close(shutdownCtx); err != nil {
+		logger.Error("flushing the usage buffer", "error", err)
+	}
+
+	logger.Info("shutdown complete")
+	return nil
+}
+
+// databasePassword extracts the credential from a connection string, so the
+// redactor can remove it from anything it appears in.
+func databasePassword(dsn obs.Secret) obs.Secret {
+	u, err := url.Parse(dsn.Expose())
+	if err != nil || u.User == nil {
+		return ""
+	}
+	password, _ := u.User.Password()
+	return obs.Secret(password)
 }
 
 // buildRouter wires up the providers that have credentials, and maps every

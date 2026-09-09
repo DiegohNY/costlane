@@ -46,7 +46,7 @@ jobs:
       - name: go test -race
         run: |
           go test -race -covermode=atomic -coverprofile=coverage.out \
-            $(go list ./... | grep -vE '/internal/(store|api|budget|proxy|storetest)')
+            $(go list ./... | grep -vE '/internal/(store|api|budget|proxy|storetest|leaktest)')
       - name: coverage summary
         run: go tool cover -func=coverage.out | tail -1
 
@@ -62,6 +62,20 @@ jobs:
       # daemon is all it needs.
       - name: go test -race (integration)
         run: go test ./internal/store/... ./internal/api/... ./internal/budget/... ./internal/proxy/... -race -timeout 20m -v
+
+  leak:
+    name: leak
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      # Credentials escape through whole systems — a log line, an error
+      # body, a metric label, a database column — so this is an integration
+      # test that drives every failure path and then searches all of them.
+      - name: no credential escapes any path
+        run: go test ./internal/leaktest/... -race -timeout 10m -v
 
   fuzz:
     name: fuzz

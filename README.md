@@ -4,9 +4,9 @@ costlane — an LLM gateway that meters tokens, costs and budgets per key.
 Drop-in OpenAI-compatible.
 
 **Status: under construction.** The gateway proxies, meters and enforces
-budgets today, streaming included. The read API and the published benchmarks
-are still to come; see the
-[implementation plan](docs/superpowers/plans/IMPLEMENTATION.md).
+budgets today, streaming included, and exposes a read API for spend and
+usage. The published benchmarks and the container image are still to come;
+see the [implementation plan](docs/superpowers/plans/IMPLEMENTATION.md).
 
 ## What it will do
 
@@ -73,6 +73,26 @@ X-Costlane-Cost-Usd: 0.002
 X-Costlane-Budget-Remaining-Usd: 4.998
 X-Costlane-Request-Id: 0e4253ac-a941-4826-be5c-16fc3b9497cb
 ```
+
+**Usage records are never dropped.** They leave the request path through a
+bounded buffer, and when that buffer is full the record is written
+synchronously instead — the request pays for the congestion, and nothing
+disappears. A database outage costs latency, not accounting: a test takes the
+database away for three seconds under load and requires every record to
+survive.
+
+**Amounts are decimal strings, never JSON numbers.** A float would round them
+on the way out, and this product exists to be exact.
+
+**Days and hours are cut on UTC boundaries**, matching the budget windows. A
+day that moved with the caller's timezone would give totals that never
+reconcile with recorded spend.
+
+**Shutdown reports unready before it stops accepting.** On SIGTERM `/readyz`
+turns 503 immediately, so a load balancer stops routing here while requests
+can still be served; only then does the listener close, in-flight requests
+finish, and the usage buffer flush. `/healthz` stays 200 throughout: a
+dependency being down is not a reason to be restarted.
 
 ## Documentation
 

@@ -1,4 +1,4 @@
-package api
+package api_test
 
 import (
 	"encoding/json"
@@ -6,10 +6,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/DiegohNY/costlane/internal/obs"
 	"github.com/DiegohNY/costlane/internal/store"
 	"github.com/DiegohNY/costlane/internal/storetest"
+	"github.com/google/uuid"
+
+	"github.com/DiegohNY/costlane/internal/api"
 )
 
 const (
@@ -24,9 +28,11 @@ type testServer struct {
 func newTestServer(t *testing.T) (*testServer, *store.DB) {
 	t.Helper()
 	db := storetest.NewTestDB(t)
-	srv := New(Options{
-		DB:        db,
-		MasterKey: obs.Secret(masterKey),
+	srv := api.New(api.Options{
+		DB:             db,
+		MasterKey:      obs.Secret(masterKey),
+		MaxQueryWindow: 90 * 24 * time.Hour,
+		Health:         api.NewHealth(db, func() bool { return true }),
 	})
 	return &testServer{handler: srv.Handler()}, db
 }
@@ -46,6 +52,24 @@ func (s *testServer) do(t *testing.T, method, path, auth, body string) *httptest
 	rec := httptest.NewRecorder()
 	s.handler.ServeHTTP(rec, req)
 	return rec
+}
+
+// createKeyWithSecret returns both halves, for tests that need to call as
+// the key rather than about it.
+func (s *testServer) createKeyWithSecret(t *testing.T, body string) (secret string, id uuid.UUID) {
+	t.Helper()
+	rec := s.do(t, http.MethodPost, "/admin/keys", masterAuth, body)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("creating a key: status %d: %s", rec.Code, rec.Body)
+	}
+	var created struct {
+		ID  string `json:"id"`
+		Key string `json:"key"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	return created.Key, uuid.MustParse(created.ID)
 }
 
 func (s *testServer) createKey(t *testing.T, body string) string {
