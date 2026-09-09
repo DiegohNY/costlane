@@ -53,5 +53,15 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
       - run: go build ./...
+      # The docker build only sees tracked files, so a source file excluded
+      # by .gitignore compiles locally and fails here. Catch it directly.
+      - name: every Go package is tracked by git
+        run: |
+          untracked=$(git ls-files --others --exclude-standard -- '*.go')
+          if [ -n "$untracked" ]; then
+            echo "Go sources not tracked by git (check .gitignore):"
+            echo "$untracked"
+            exit 1
+          fi
       - name: docker build
         run: docker build -t costlane:ci .
