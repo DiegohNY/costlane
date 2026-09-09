@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"regexp"
 )
 
 // Redacted is what a secret renders as. Unset distinguishes a credential
@@ -75,4 +76,32 @@ func (s Secret) Equal(other Secret) bool {
 	a := sha256.Sum256([]byte(s))
 	b := sha256.Sum256([]byte(other))
 	return subtle.ConstantTimeCompare(a[:], b[:]) == 1
+}
+
+// secretPatterns match credentials as providers format them. They exist for
+// one purpose: a provider that echoes an API key back inside an error message
+// must not have that message forwarded verbatim to a client, or written to
+// our logs.
+var secretPatterns = []*regexp.Regexp{
+	regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]{16,}`),
+	regexp.MustCompile(`sk-proj-[A-Za-z0-9_-]{16,}`),
+	regexp.MustCompile(`sk-[A-Za-z0-9]{20,}`),
+	regexp.MustCompile(`cl_[A-Za-z0-9]{20,}`),
+	regexp.MustCompile(`AIza[A-Za-z0-9_-]{20,}`),
+	regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{20,}`),
+	regexp.MustCompile(`(?i)bearer\s+[A-Za-z0-9._\-]{20,}`),
+}
+
+// RedactSecrets replaces anything that looks like a credential.
+//
+// This is a backstop, not the primary defence: credentials are Secret values
+// everywhere they are handled, so nothing we construct should contain one.
+// What this catches is text we did not write — an upstream error body on its
+// way to a client.
+func RedactSecrets(b []byte) []byte {
+	out := b
+	for _, pattern := range secretPatterns {
+		out = pattern.ReplaceAll(out, []byte(Redacted))
+	}
+	return out
 }
