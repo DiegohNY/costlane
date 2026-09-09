@@ -15,15 +15,15 @@ Goal: an empty but fully wired repository where a red test blocks a merge.
 
 - [x] `git init`, `go.mod` (module `github.com/DiegohNY/costlane`, go 1.27)
 - [x] Apache-2.0 `LICENSE` (no NOTICE: no third-party attributions yet)
-- [ ] Package skeleton per spec §3, each with a doc.go stating its purpose
-- [ ] `internal/config`: env to struct, no defaults hidden in code
-- [ ] Boot validation: `drain_timeout <= provider_timeout`; `TTL >= provider_timeout + drain_timeout + margin`
-- [ ] TEST: config validation rejects each invalid combination
-- [ ] `.golangci.yml` with errcheck, bodyclose, gosec, staticcheck
-- [ ] CI: lint job
-- [ ] CI: `go test ./... -race`
-- [ ] CI: build + docker build
-- [ ] `Dockerfile`, distroless base, non-root user
+- [x] Package skeleton per spec §3, each documented (config's package doc lives in config.go)
+- [x] `internal/config`: env to struct, no defaults hidden in code
+- [x] Boot validation: `drain_timeout <= provider_timeout`; `TTL >= provider_timeout + drain_timeout` (margin applies to the default only)
+- [x] TEST: config validation rejects each invalid combination
+- [x] `.golangci.yml` with errcheck, bodyclose, gosec, staticcheck
+- [x] CI: lint job
+- [x] CI: `go test ./... -race`
+- [x] CI: build + docker build
+- [x] `Dockerfile`, distroless base, non-root user
 - [x] README skeleton with the agreed tagline
 - [x] `.gitignore` (Go, .env*, *.pem, .DS_Store) + manual secret scan of history
 - [x] Public repo `DiegohNY/costlane` created and pushed
@@ -45,6 +45,12 @@ compiled locally from the working copy and never entered the commit. Only
 the docker build, which sees tracked files alone, caught it. Fixed by
 anchoring both patterns to the root, plus a CI step that fails when any Go
 source is untracked — so the error now names its own cause.
+
+**A pinned linter version broke the job it was meant to stabilise.**
+golangci-lint v2.6.1 is built with Go 1.25 and refuses a config targeting
+1.27. The pin is right; the version was picked without checking. Now on
+v2.13.2, and the lesson is that a pin must be verified against the
+toolchain, not assumed.
 
 **Branch protection was tested destructively, and was bypassable.**
 `enforce_admins` was left false, making the rules decorative for the only
