@@ -1,0 +1,9 @@
+: captured 2026-09-10T10:47:57Z
+: endpoint POST /v1beta/models/gemini-3.8-flash:streamGenerateContent?alt=sse
+: model gemini-3.8-flash
+: request {"contents":[{"role":"user","parts":[{"text":"What is the weather in Bologna right now? Use the tool."}]}],"tools":[{"functionDeclarations":[{"name":"get_weather","description":"Get the current weather for a city","parameters":{"type":"object","properties":{"city":{"type":"string","description":"City name"},"unit":{"type":"string","enum":["c","f"]}},"required":["city"]}}]}],"generationConfig":{"maxOutputTokens":200}}
+:
+data: {"candidates": [{"content": {"parts": [{"functionCall": {"name": "get_weather","args": {"city": "Bologna"},"id": "call_1463996"},"thoughtSignature": "EooDCocDARFNMg+PTKMqWhDw+r9o6it0VHmpOjXKn7n25MidAzigKNAb1o531pjCA1ItEMh05DUIg2E0Dy/mstSZMWD0YmsILad751KDVE4uRkm21TRZKN1OQN+RxDs748eoIpiS/MPmQ8kTBo+Y76924CCbp3gYYCLC8w9AiGPVIkjgRl90Ver2nxSGEKgC360DWbR99EO06GpVOOlhTRuNYyBjRTPLPo75qZtMUGo2p1FhSbo6Vt7zEL7BiTRfuch2PsA5xghJj0eP68zxMDvfFSCfajV10rcDW4N87NtJDzkD+c1YowH8sQrcfd+pe0B+1+vCEL5Hx4Fxz0xranc3M7X/5qx8r9EelrePQiwf11djsmSkvimXD4qiTkR41qqcjZUCTWRRXZx1au6aI6VNPy6HN53hMQ45KQm+GNmei6XM/bIFTp0wcghyPFGYiXwyiwyd3SZYhuZgrIcn9nI2f4CObtrR5c8+ap5gwlFhoE5GYNGyp3rsjKBe5JN+jhps93ZwqZMIDXxemw=="}],"role": "model"},"index": 0}],"usageMetadata": {"promptTokenCount": 83,"candidatesTokenCount": 18,"totalTokenCount": 161,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 83}],"thoughtsTokenCount": 60,"serviceTier": "standard"},"modelVersion": "gemini-3.8-flash","responseId": "0oqiaqvyCZeQxN8P8aeBqAE"}
+
+data: {"candidates": [{"content": {"parts": [{"text": ""}],"role": "model"},"finishReason": "STOP","index": 0}],"usageMetadata": {"promptTokenCount": 83,"candidatesTokenCount": 18,"totalTokenCount": 161,"promptTokensDetails": [{"modality": "TEXT","tokenCount": 83}],"thoughtsTokenCount": 60,"serviceTier": "standard"},"modelVersion": "gemini-3.8-flash","responseId": "0oqiaqvyCZeQxN8P8aeBqAE"}
+
