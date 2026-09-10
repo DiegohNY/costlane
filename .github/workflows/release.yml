@@ -15,6 +15,12 @@ jobs:
   image:
     name: publish the image
     runs-on: ubuntu-latest
+    outputs:
+      # The digest of the manifest list just pushed. Everything downstream
+      # addresses the image by this rather than by a tag, so the thing that
+      # gets smoke-tested and the thing that becomes :latest are the same
+      # bytes by construction rather than by assumption.
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@v5
 
@@ -40,6 +46,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -47,9 +54,11 @@ jobs:
           # The version is stamped into the binary, so /healthz reports the
           # same string as the tag that produced it.
           build-args: VERSION=${{ github.ref_name }}
-          tags: |
-            ${{ env.IMAGE }}:${{ github.ref_name }}
-            ${{ env.IMAGE }}:latest
+          # The version tag only. :latest is moved by the promote job below,
+          # and only once the smoke test has passed - otherwise a release
+          # that fails its own boot check would already be what a plain
+          # `docker pull costlane` hands you.
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
 
   # The image is the artifact people actually run, and until now nothing ran
   # it. The version reported by /healthz is stamped at link time by a
@@ -91,6 +100,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Addressed by digest rather than by tag, so what boots here is the
+      # same manifest the promote job will point :latest at — not merely
+      # whatever that tag resolved to at the moment this step ran.
+      #
       # --platform is explicit rather than left to the runner's architecture,
       # so this says which half of the manifest was tested.
       - name: run the published image
@@ -100,7 +113,9 @@ jobs:
             -e COSTLANE_DATABASE_URL="postgres://costlane:costlane@localhost:5432/costlane?sslmode=disable" \
             -e COSTLANE_MASTER_KEY="smoke-test-master-key-not-a-real-credential" \
             -e COSTLANE_MIGRATE_ON_BOOT=true \
-            "$IMAGE:${{ github.ref_name }}"
+            "$IMAGE@$DIGEST"
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
 
       - name: wait for readiness
         run: |
@@ -133,3 +148,52 @@ jobs:
       - name: stop
         if: always()
         run: docker rm -f costlane || true
+
+  # :latest moves only after the image has proved it boots, and it is moved
+  # by copying the manifest the smoke test ran rather than by building
+  # anything: imagetools create re-points a tag at an existing digest, so
+  # there is no second build that could differ from the first.
+  #
+  # If the smoke test fails, this never runs and :latest keeps pointing at
+  # the previous release. A broken tag is a bad afternoon; a broken :latest
+  # is everyone else's bad afternoon.
+  promote:
+    name: point latest at the tested image
+    needs: [image, smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - name: derive the image name
+        run: |
+          owner_repo=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=ghcr.io/$owner_repo" >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # imagetools create re-points a tag at a manifest that already exists
+      # in the registry. Nothing is rebuilt, so there is no second build to
+      # differ from the one that was tested.
+      - name: retag the tested digest as latest
+        run: docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$DIGEST"
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
+
+      - name: confirm latest points at the tested image
+        run: |
+          # A manifest digest is the sha256 of the manifest bytes, so this
+          # computes it from the bytes rather than trusting a template field
+          # name that a buildx release could rename under us.
+          latest="sha256:$(docker buildx imagetools inspect --raw "$IMAGE:latest" | sha256sum | cut -d' ' -f1)"
+          echo "latest -> $latest"
+          echo "tested -> $DIGEST"
+          if [ "$latest" != "$DIGEST" ]; then
+            echo "latest does not point at the image the smoke test ran"
+            exit 1
+          fi
+        env:
+          DIGEST: ${{ needs.image.outputs.digest }}
