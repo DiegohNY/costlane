@@ -57,3 +57,26 @@ per-key setting costs one column.
   closes. That is documented behaviour, and it is verified against live APIs
   in [provider verification](../provider-verification.md); it is the single
   assumption in the design that a fake provider cannot settle.
+
+## An addendum, specific to Gemini
+
+Cancelling normally costs accuracy: the provider's own total arrives at the
+end of a stream, and a client that leaves early takes that figure with it. The
+usage record then says `usage_source = tokenizer`, because a count of what
+went past is an estimate and must not be presented as a measurement.
+
+Gemini does not have that trade. Its streamed chunks each restate the running
+totals rather than contributing a piece of them, so the last chunk read before
+a disconnect already carries the provider's exact count up to that moment.
+A cancelled Gemini stream is therefore metered from a measurement, and its
+record says `usage_source = provider` with `client_disconnected = true`.
+
+This is a property of one provider's protocol, not a general one, and the code
+says so: `provider.Stream.UsageIsCumulative` is a field an adapter sets rather
+than a behaviour the pump assumes. OpenAI and Anthropic both report usage once,
+at the end, and for them the original paragraph stands unchanged.
+
+It changes nothing about the money. Whether Google stops *charging* when the
+connection closes is the open question that
+[#13](https://github.com/DiegohNY/costlane/issues/13) exists to answer; this
+addendum is only about whether we know what to write down.

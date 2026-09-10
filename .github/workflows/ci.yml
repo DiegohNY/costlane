@@ -90,10 +90,18 @@ jobs:
       # the case fuzzing exists for.
       - name: fuzz the SSE frame reader
         run: go test ./internal/proxy/ -run FuzzFrameReader -fuzz FuzzFrameReader -fuzztime 30s
-      - name: fuzz the stream translator
+      - name: fuzz the Anthropic stream translator
         run: |
           go test ./internal/provider/ -run FuzzAnthropicStreamTranslator \
             -fuzz FuzzAnthropicStreamTranslator -fuzztime 30s
+      # Same budget as the other two. It earned it on its first run: a
+      # negative token count from a provider went straight into the meter,
+      # where Table.Cost refuses it with an error that callers swallow into a
+      # zero cost — an absurd figure upstream becoming a free request.
+      - name: fuzz the Gemini stream translator
+        run: |
+          go test ./internal/provider/ -run FuzzGoogleStreamTranslator \
+            -fuzz FuzzGoogleStreamTranslator -fuzztime 30s
 
   vuln:
     name: vulnerabilities

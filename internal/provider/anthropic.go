@@ -424,6 +424,7 @@ func (p *Anthropic) Stream(ctx context.Context, req Request) (*Stream, error) {
 		TrailingChunks: func() [][]byte {
 			return [][]byte{translator.UsageChunk()}
 		},
+		ClosedCleanly: translator.ClosedCleanly,
 		Usage: func() (Counts, bool) {
 			input, cachedRead, cacheWrite, output, reported := translator.Usage()
 			return Counts{

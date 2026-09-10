@@ -91,7 +91,11 @@ same statement ([ADR 0003](docs/adr/0003-reserve-in-one-statement.md)).
 **Streaming is accounted for exactly, not estimated.** The gateway asks the
 provider for its usage figures, reads them as the stream goes past, and strips
 the chunk again if the client never asked for it. Cost comes from the
-provider's own numbers, not from a tokeniser guessing at them.
+provider's own numbers, not from a tokeniser guessing at them. All three
+providers stream, each in its own dialect, and each dialect's translation is
+pinned by fixtures captured from the live API rather than written from its
+documentation — which, for Gemini, described two shapes the endpoint does not
+send.
 
 **Prices are versioned, sourced and dated.** One row per token kind, per
 context tier, per validity window, each carrying the URL it was read from and
@@ -159,20 +163,21 @@ version — because a dependency being down is not a reason to be restarted.
 
 Stated plainly, because finding them yourself would be worse.
 
-- **Gemini is non-streaming only in v0.1.0.** costlane has no Gemini streaming
-  adapter, so a streamed request to a Gemini model is refused by name rather
-  than buffered. Gemini streaming is the first item of v0.2
-  ([#12](https://github.com/DiegohNY/costlane/issues/12)).
 - **The cancel default is not measured on any provider.** costlane closes the
   upstream connection when a client disconnects, on the documented behaviour
   that providers stop generating and stop charging. That belief has not been
-  confirmed against a live API for OpenAI, Anthropic or Google: the first two
-  had no funded credentials at release, and the third has no stream to cancel.
-  **If you need certainty over cost rather than a documented default, set
+  confirmed against a live API for OpenAI, Anthropic or Google. **If you need
+  certainty over cost rather than a documented default, set
   `disconnect_policy: drain` on the keys that route to them** and pay for an
   exact figure. What was checked, and what was not, is recorded in
   [provider verification](docs/provider-verification.md); closing the gap is
   [#13](https://github.com/DiegohNY/costlane/issues/13).
+
+  Gemini is a partial exception, and only for accounting rather than for
+  spend: it restates its running totals on every chunk, so the last chunk
+  read before a disconnect is the provider's own exact figure. A cancelled
+  Gemini stream is metered from a measurement, not an estimate. That says
+  nothing about whether Google stops charging, which is what #13 is for.
 - **Token counting is verified against a live API for Gemini only.** Everything
   else is tested against a fake provider that reproduces each dialect.
 - **Vertex AI and Bedrock are not supported.** Google means the Gemini API with

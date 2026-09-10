@@ -22,9 +22,12 @@ jobs:
           - name: frame-reader
             package: ./internal/proxy/
             func: FuzzFrameReader
-          - name: stream-translator
+          - name: anthropic-stream-translator
             package: ./internal/provider/
             func: FuzzAnthropicStreamTranslator
+          - name: gemini-stream-translator
+            package: ./internal/provider/
+            func: FuzzGoogleStreamTranslator
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6

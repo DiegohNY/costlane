@@ -196,3 +196,53 @@ func assertCounts(t *testing.T, got, want Counts) {
 		}
 	}
 }
+
+// A provider reporting a negative token count is absurd, which is why it is
+// handled rather than trusted not to happen.
+//
+// Table.Cost refuses a negative count with an error, and that error is
+// swallowed into a zero cost by the callers that log rather than fail — so
+// an absurd figure upstream would quietly become a free request. Clamping to
+// zero and degrading keeps the request accounted for and marks the number as
+// one nobody should rely on.
+//
+// Found by the Gemini stream fuzz target on its first run.
+func TestNegativeCountsAreClampedAndDegraded(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload string
+		fn      func([]byte) (Normalised, error)
+	}{
+		{
+			name:    "google",
+			payload: `{"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":-5}}`,
+			fn:      NormaliseGoogle,
+		},
+		{
+			name:    "openai",
+			payload: `{"usage":{"prompt_tokens":10,"completion_tokens":-5}}`,
+			fn:      NormaliseOpenAI,
+		},
+		{
+			name:    "anthropic",
+			payload: `{"usage":{"input_tokens":10,"output_tokens":-5}}`,
+			fn:      NormaliseAnthropic,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := tc.fn([]byte(tc.payload))
+			if err != nil {
+				t.Fatalf("normalising: %v", err)
+			}
+			for kind, count := range out.Counts {
+				if count < 0 {
+					t.Errorf("%s count = %d, want no negative counts", kind, count)
+				}
+			}
+			if !out.Degraded {
+				t.Error("Degraded = false: a clamped figure that does not say so " +
+					"is presented as a measurement")
+			}
+		})
+	}
+}

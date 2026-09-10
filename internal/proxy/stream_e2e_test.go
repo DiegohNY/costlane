@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -488,4 +489,118 @@ func TestErrorAfterHeadersBecomesAnSSEEvent(t *testing.T) {
 	if *errorCode == "" {
 		t.Error("error_code is empty")
 	}
+}
+
+// A streamed Gemini request, end to end.
+//
+// Gemini was the provider costlane could not stream in v0.1.0, and its
+// protocol differs from the other two in three ways that all touch the
+// meter: usage rides cumulatively on every chunk, thinking tokens are billed
+// as output but reported apart from it, and the stream ends by closing the
+// connection rather than by sending [DONE].
+func TestGeminiStreamEndToEnd(t *testing.T) {
+	h := newHarness(t, "100")
+	srv := h.serve(t)
+
+	req := h.streamRequest(t, srv,
+		`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`,
+		map[string]string{
+			fakeprovider.HeaderPromptTokens:     "45",
+			fakeprovider.HeaderCompletionTokens: "136",
+			fakeprovider.HeaderReasoningTokens:  "264",
+		})
+	resp := h.send(t, srv, req)
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+
+	var (
+		chunks     int
+		sawDone    bool
+		completion int64
+	)
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		payload, ok := strings.CutPrefix(line, "data: ")
+		if !ok {
+			continue
+		}
+		if payload == "[DONE]" {
+			sawDone = true
+			continue
+		}
+		chunks++
+		var parsed struct {
+			Object string `json:"object"`
+			Usage  *struct {
+				CompletionTokens int64 `json:"completion_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(payload), &parsed); err != nil {
+			t.Fatalf("the client received a chunk that is not valid JSON: %q", payload)
+		}
+		if parsed.Object != "chat.completion.chunk" {
+			t.Errorf("chunk object = %q: the client is not seeing the OpenAI dialect",
+				parsed.Object)
+		}
+		if parsed.Usage != nil {
+			completion = parsed.Usage.CompletionTokens
+		}
+	}
+
+	if chunks == 0 {
+		t.Fatal("no chunks reached the client")
+	}
+	// The gateway appends [DONE] for a translated stream, because an OpenAI
+	// client waits for one even though Gemini never sends it.
+	if !sawDone {
+		t.Error("the client never received [DONE]; an OpenAI client would hang")
+	}
+	// 136 visible plus 264 thought: Google bills thinking as output.
+	if completion != 400 {
+		t.Errorf("completion_tokens in the usage chunk = %d, want 400", completion)
+	}
+
+	// The accounting: exact, from the provider's own figures, and priced
+	// without a partially-priced flag even though thinking was involved.
+	waitForSettle(t, h)
+
+	var (
+		source          string
+		errorCode       string
+		partiallyPriced bool
+		outputTokens    int64
+		reasoning       int64
+	)
+	if err := h.db.Pool().QueryRow(t.Context(), `
+		SELECT usage_source, error_code, partially_priced,
+		       output_tokens, reasoning_tokens
+		  FROM usage_records`).
+		Scan(&source, &errorCode, &partiallyPriced, &outputTokens, &reasoning); err != nil {
+		t.Fatalf("reading the record: %v", err)
+	}
+
+	if source != "provider" {
+		t.Errorf("usage_source = %q, want provider", source)
+	}
+	if errorCode != "" {
+		t.Errorf("error_code = %q, want empty: a Gemini stream ends by closing "+
+			"the connection after a finishReason, which is a clean close",
+			errorCode)
+	}
+	if partiallyPriced {
+		t.Error("partially_priced = true: thinking tokens are a breakdown of " +
+			"output, not an unpriced kind of their own")
+	}
+	if outputTokens != 400 {
+		t.Errorf("recorded output = %d, want 400", outputTokens)
+	}
+	if reasoning != 264 {
+		t.Errorf("recorded reasoning = %d, want 264", reasoning)
+	}
+
+	assertReconciled(t, h.db)
 }

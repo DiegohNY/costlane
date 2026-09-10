@@ -28,6 +28,28 @@ func (n *Normalised) degrade(reason string) {
 	_ = reason // retained for the caller's structured log
 }
 
+// clampNegative replaces any negative count with zero and degrades the
+// result.
+//
+// A token count below zero is not something a provider should ever send, and
+// that is exactly why it is worth handling here rather than trusting it not
+// to happen. Downstream, Table.Cost refuses a negative count with an error,
+// and an error there is swallowed into a zero cost — so an absurd figure
+// upstream would become a free request rather than a loud one. Clamping and
+// degrading keeps the request accounted for and marks the figure as one
+// nobody should rely on.
+//
+// Found by the Gemini stream fuzz target on its first run, against every
+// provider rather than one.
+func (n *Normalised) clampNegative() {
+	for kind, count := range n.Counts {
+		if count < 0 {
+			n.degrade("provider reported a negative " + string(kind) + " count")
+			n.Counts[kind] = 0
+		}
+	}
+}
+
 // NormaliseOpenAI translates a Chat Completions or Responses usage block.
 //
 // Cached and cache-write tokens are subsets of the prompt total, so they are
@@ -115,6 +137,7 @@ func NormaliseOpenAI(payload []byte) (Normalised, error) {
 	if reasoning > outputTotal {
 		out.degrade("reasoning tokens exceed the output total")
 	}
+	out.clampNegative()
 	return out, nil
 }
 
@@ -178,6 +201,7 @@ func NormaliseAnthropic(payload []byte) (Normalised, error) {
 		out.Counts[KindCacheWrite5m] = u.CacheCreationInputTokens
 	}
 
+	out.clampNegative()
 	return out, nil
 }
 
@@ -221,5 +245,6 @@ func NormaliseGoogle(payload []byte) (Normalised, error) {
 	out.Counts[KindOutput] = u.CandidatesTokenCount + u.ThoughtsTokenCount
 	out.Counts[KindReasoning] = u.ThoughtsTokenCount
 
+	out.clampNegative()
 	return out, nil
 }
