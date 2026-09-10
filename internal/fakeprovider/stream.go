@@ -161,6 +161,18 @@ func streamGemini(w http.ResponseWriter, s Scenario, model string) {
 		flusher.Flush()
 	}
 
+	// Shaped after internal/provider/testdata/gemini/*.sse, captured from
+	// the live API. Three things there are easy to get wrong from the
+	// documentation alone, and all three matter to the meter:
+	//
+	//   - usageMetadata rides on EVERY chunk and is cumulative, not a
+	//     final summary. A translator that sums would multiply the count.
+	//   - responseId and modelVersion are on every chunk too.
+	//   - there is no [DONE]. The stream ends after a chunk carrying a
+	//     finishReason, and the connection closes.
+	//
+	// This function conforms to the captures. If the two ever disagree,
+	// the captures are right and this is wrong.
 	for i := range s.CompletionTokens {
 		if s.FailAfterChunks > 0 && i >= s.FailAfterChunks {
 			return
@@ -175,20 +187,27 @@ func streamGemini(w http.ResponseWriter, s Scenario, model string) {
 		}
 		emit(map[string]any{
 			"modelVersion": model,
+			"responseId":   s.RequestID,
 			"candidates": []any{map[string]any{
 				"content": map[string]any{
 					"role":  "model",
 					"parts": []any{map[string]any{"text": "token "}},
 				},
+				"index": 0,
 			}},
+			"usageMetadata": geminiUsageAt(s, i+1),
 		})
 	}
 
+	// The closing chunk: an empty part, the finishReason, and the totals.
+	// The real API sends exactly this shape, down to the empty text.
 	final := map[string]any{
 		"modelVersion": model,
+		"responseId":   s.RequestID,
 		"candidates": []any{map[string]any{
-			"content":      map[string]any{"role": "model", "parts": []any{}},
+			"content":      map[string]any{"role": "model", "parts": []any{map[string]any{"text": ""}}},
 			"finishReason": "STOP",
+			"index":        0,
 		}},
 	}
 	if !s.OmitUsage {

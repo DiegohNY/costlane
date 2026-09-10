@@ -34,6 +34,10 @@ type AnthropicStreamTranslator struct {
 	nextTool  int
 
 	sawUsage bool
+	// sawStop records the message_stop that closes a Messages stream. It
+	// is what tells a complete stream from one that was cut off, since
+	// Anthropic sends no [DONE].
+	sawStop bool
 }
 
 // NewAnthropicStreamTranslator builds a translator.
@@ -99,9 +103,9 @@ func (t *AnthropicStreamTranslator) Translate(event, data []byte) ([][]byte, err
 		if e.Message != nil {
 			t.id, t.model = e.Message.ID, e.Message.Model
 			if u := e.Message.Usage; u != nil {
-				t.inputTokens = u.InputTokens
-				t.cacheReadTokens = u.CacheReadInputTokens
-				t.cacheWriteTokens = u.CacheCreationInputTokens
+				t.inputTokens = nonNegative(u.InputTokens)
+				t.cacheReadTokens = nonNegative(u.CacheReadInputTokens)
+				t.cacheWriteTokens = nonNegative(u.CacheCreationInputTokens)
 			}
 		}
 		// The opening chunk announces the assistant role, as OpenAI does.
@@ -157,7 +161,7 @@ func (t *AnthropicStreamTranslator) Translate(event, data []byte) ([][]byte, err
 
 	case "message_delta":
 		if e.Usage != nil {
-			t.outputTokens = e.Usage.OutputTokens
+			t.outputTokens = nonNegative(e.Usage.OutputTokens)
 			t.sawUsage = true
 		}
 		if e.Delta == nil || e.Delta.StopReason == "" {
@@ -166,11 +170,37 @@ func (t *AnthropicStreamTranslator) Translate(event, data []byte) ([][]byte, err
 		finish := anthropicFinishReason(e.Delta.StopReason)
 		return [][]byte{t.chunk(map[string]any{}, &finish)}, nil
 
-	case "message_stop", "content_block_stop", "ping":
+	case "message_stop":
+		t.sawStop = true
+		return nil, nil
+
+	case "content_block_stop", "ping":
 		return nil, nil
 	}
 	return nil, nil
 }
+
+// nonNegative floors a count at zero.
+//
+// This translator keeps its own counters rather than going through
+// pricing.NormaliseAnthropic, so the clamp that protects the non-streaming
+// path does not reach it. A negative count is not something a provider should
+// send; it is guarded because the consequence downstream is a priced request
+// silently becoming a free one. The Gemini translator needs no equivalent
+// because it delegates its arithmetic to the normaliser, which is the better
+// arrangement and the reason this comment exists rather than a second copy of
+// the rule.
+func nonNegative(n int) int {
+	if n < 0 {
+		return 0
+	}
+	return n
+}
+
+// ClosedCleanly reports whether the stream ended with message_stop, which is
+// how the Messages protocol says a complete one ends. Anthropic sends no
+// [DONE], so the pump's own check would call every stream truncated.
+func (t *AnthropicStreamTranslator) ClosedCleanly() bool { return t.sawStop }
 
 // Usage returns the counts gathered across the stream, and whether the
 // provider actually reported them.

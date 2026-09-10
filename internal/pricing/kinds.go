@@ -67,6 +67,30 @@ func (t Tier) Valid() bool {
 	return false
 }
 
+// Billable reports whether a kind is charged in its own right, or is a
+// breakdown of one that already is.
+//
+// Reasoning is the second sort. Every provider that reports thinking tokens
+// counts them inside its output total as well: OpenAI's completion_tokens
+// includes reasoning_tokens, Google's normalisation sets output to
+// candidatesTokenCount + thoughtsTokenCount, and Anthropic states that
+// thinking is billed as output. The count is kept because an operator wants
+// to see what a model spent thinking, but pricing it a second time would
+// charge those tokens twice.
+//
+// Before this existed, a reasoning count with no rate behind it marked every
+// thinking request partially_priced — a correct cost carrying a flag that
+// said it might not be. The alternative fix, seeding a reasoning rate equal
+// to output, would have made the flag go away by making the figure wrong.
+func (k Kind) Billable() bool {
+	switch k {
+	case KindReasoning:
+		return false
+	default:
+		return true
+	}
+}
+
 // CountsTowardInputTier reports whether usage of this kind counts towards
 // the input total that selects a context tier. OpenAI's threshold is
 // measured on input tokens alone, and cached and cache-write tokens are

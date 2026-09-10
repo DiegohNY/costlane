@@ -53,12 +53,14 @@ func newHarnessOn(t testing.TB, limit string, db *store.DB) *harness {
 	router := provider.NewRouter(
 		provider.NewOpenAI(opts),
 		provider.NewAnthropic(opts),
+		provider.NewGoogle(opts),
 	)
 	router.SetModelProviders(map[string]string{
-		"gpt-6-astra":     "openai",
-		"gpt-5.6-terra":   "openai",
-		"claude-sonnet-5": "anthropic",
-		"claude-opus-5":   "anthropic",
+		"gpt-6-astra":      "openai",
+		"gpt-5.6-terra":    "openai",
+		"claude-sonnet-5":  "anthropic",
+		"claude-opus-5":    "anthropic",
+		"gemini-3.8-flash": "google",
 	})
 
 	key, err := auth.NewKey()

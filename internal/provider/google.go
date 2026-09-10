@@ -98,6 +98,83 @@ func (p *Google) Complete(ctx context.Context, req Request) (*Response, error) {
 	return out, nil
 }
 
+// Stream forwards a streaming request, translating chunks as they arrive.
+//
+// The endpoint is the same generateContent with :streamGenerateContent and
+// alt=sse, and the chunks are whole GenerateContentResponse objects — the
+// same shape as a non-streaming reply, arriving one piece at a time. Nothing
+// is injected into the request: unlike OpenAI, Gemini needs no asking to
+// report usage, and unlike Anthropic it needs no max_tokens.
+func (p *Google) Stream(ctx context.Context, req Request) (*Stream, error) {
+	translated, err := TranslateGoogleRequest(req.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse",
+		p.opts.BaseURL, req.Model)
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url,
+		bytes.NewReader(translated))
+	if err != nil {
+		return nil, fmt.Errorf("provider: building request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-goog-api-key", p.opts.APIKey.Expose())
+	httpReq.Header.Set("Accept", "text/event-stream")
+	for name, value := range req.PassthroughHeaders {
+		httpReq.Header.Set(name, value)
+	}
+
+	resp, err := p.opts.Client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("provider: calling google: %w", err)
+	}
+
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		return nil, &ErrUpstream{
+			StatusCode: resp.StatusCode, Body: raw,
+			RetryAfter: resp.Header.Get("Retry-After"), Native: false,
+		}
+	}
+
+	translator := NewGoogleStreamTranslator()
+	return &Stream{
+		// Gemini reports usage whether or not anyone asked, so nothing is
+		// injected; the client's own request decides only whether the
+		// chunk built from those figures reaches it.
+		ClientWantsUsage:  ClientAskedForUsage(req.Body),
+		Body:              resp.Body,
+		StatusCode:        resp.StatusCode,
+		Header:            resp.Header,
+		ProviderRequestID: resp.Header.Get("X-Request-Id"),
+		Translate:         translator.Translate,
+		// Gemini states its usage in its own dialect on every chunk, so
+		// the chunk an OpenAI client waits for has to be assembled.
+		TrailingChunks: func() [][]byte {
+			if chunk := translator.UsageChunk(); chunk != nil {
+				return [][]byte{chunk}
+			}
+			return nil
+		},
+		Usage: func() (Counts, bool) {
+			counts, reported := translator.Usage()
+			out := Counts{}
+			for kind, n := range counts {
+				out[string(kind)] = n
+			}
+			return out, reported
+		},
+		// EOF is how a Gemini stream ends; what makes it clean is a
+		// finishReason having gone past first.
+		ClosedCleanly: translator.ClosedCleanly,
+		// Every chunk restates the running totals, so the last one read is
+		// exact even when the client left before the end.
+		UsageIsCumulative: true,
+	}, nil
+}
+
 // TranslateGoogleRequest converts a chat completion into generateContent.
 func TranslateGoogleRequest(body []byte) ([]byte, error) {
 	names, err := FieldNames(body)

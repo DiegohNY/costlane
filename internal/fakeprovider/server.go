@@ -207,6 +207,15 @@ func handleGemini(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// geminiUsageAt reports the running totals after a given number of visible
+// output tokens. Gemini restates them on every streamed chunk, so a fake that
+// only reported them at the end would let a summing translator pass.
+func geminiUsageAt(s Scenario, candidates int) map[string]any {
+	partial := s
+	partial.CompletionTokens = candidates
+	return geminiUsage(partial)
+}
+
 func geminiUsage(s Scenario) map[string]any {
 	// promptTokenCount includes cachedContentTokenCount, while
 	// thoughtsTokenCount sits outside candidatesTokenCount: Gemini is the

@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 )
@@ -32,11 +33,61 @@ type Stream struct {
 	// chunk. When it did not, the gateway strips the chunk it injected on
 	// the client's behalf.
 	ClientWantsUsage bool
+
+	// ClosedCleanly reports whether the stream ended the way this
+	// provider's protocol says a complete one does.
+	//
+	// There is no single answer, which is why it is per adapter. OpenAI
+	// closes with [DONE]. Anthropic closes with message_stop. Gemini closes
+	// by ending the connection after a chunk carrying a finishReason — for
+	// it, EOF is not an interruption but the ordinary end, and treating a
+	// missing [DONE] as truncation would flag every healthy Gemini stream.
+	// A nil value means "the pump's [DONE] check is the right test", which
+	// is true for a same-dialect stream.
+	ClosedCleanly func() bool
+
+	// UsageIsCumulative reports that every chunk restates the running
+	// totals rather than contributing a piece of them.
+	//
+	// Gemini does this, and it has a consequence worth the field: when a
+	// client disconnects mid-stream, the last chunk already read carries
+	// the provider's exact count up to that point. The accounting is then a
+	// measurement rather than an estimate, and the usage record can say
+	// "provider" honestly. For a provider that reports usage only at the
+	// end, the same disconnect leaves nothing but a count of what went past.
+	UsageIsCumulative bool
 }
 
 // Counts mirrors pricing.Counts without importing it, so the provider
 // package stays free of a pricing dependency.
 type Counts map[string]int64
+
+// ClientAskedForUsage reports whether an incoming OpenAI-dialect request set
+// stream_options.include_usage.
+//
+// A provider whose own protocol reports usage unprompted — Anthropic and
+// Gemini both do — still has to know this, because the usage chunk it hands
+// back to the client is synthesised on the client's behalf and must only
+// appear if the client asked. OpenAI learns the same fact while injecting the
+// option it needs for its own accounting; the other two have nothing to
+// inject, so they read it here.
+//
+// Getting this wrong is quiet in both directions: a client that asked and
+// receives nothing has to guess, and a client that did not ask receives a
+// chunk its parser may not expect.
+func ClientAskedForUsage(body []byte) bool {
+	raw, present := Field(body, "stream_options")
+	if !present {
+		return false
+	}
+	var opts struct {
+		IncludeUsage bool `json:"include_usage"`
+	}
+	if err := json.Unmarshal(raw, &opts); err != nil {
+		return false
+	}
+	return opts.IncludeUsage
+}
 
 // Streamer is a provider that can stream.
 //

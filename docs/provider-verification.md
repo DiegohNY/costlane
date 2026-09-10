@@ -5,15 +5,16 @@
 | Check | OpenAI | Anthropic | Google |
 |---|---|---|---|
 | (a) non-streaming counts | not verified | not verified | **verified** |
-| (b) streaming counts | not verified | not verified | not applicable |
-| (c) cancellation stops billing | **not verified** | **not verified** | **not verifiable** |
+| (b) streaming counts | not verified | not verified | not run |
+| (c) cancellation stops billing | **not verified** | **not verified** | **not run** |
 
 Read that table before reading anything else in this repository about
 cancellation. **No provider has been measured for check (c).** OpenAI and
-Anthropic had no funded credentials when v0.1.0 was tagged; Google has no
-streaming adapter in costlane, so there is no stream to cancel and the check
-cannot be run against it at all. The cancel default therefore rests on
-documented provider behaviour, not on a measurement taken here.
+Anthropic had no funded credentials when v0.1.0 was tagged. Google could not be
+run at all then, for want of a streaming adapter; that adapter now exists, so
+checks (b) and (c) went from "not verifiable" to "not run" — the harness will
+exercise them the next time a credential is available. The cancel default still
+rests on documented provider behaviour rather than on a measurement taken here.
 
 An operator who needs certainty over cost rather than a documented default
 should set `disconnect_policy: drain` on the keys concerned, and pay for an
@@ -124,7 +125,7 @@ raw payload rather than against anything costlane produced.
 |----------|-------|--------------------|-------------------|-------|---------------------|
 | OpenAI | — | — | — | **not verified** | no funded credential at v0.1.0 |
 | Anthropic | — | — | — | **not verified** | no funded credential at v0.1.0 |
-| Google | — | — | — | **not applicable** | costlane has no Gemini streaming adapter |
+| Google | — | — | — | **not run** | the adapter exists as of v0.2; awaiting a credential |
 
 ### (c) Billing stops on cancellation
 
@@ -134,18 +135,22 @@ Ceiling asked for in every row: `max_tokens: 4000`. Cancelled after one chunk.
 |----------|---------------|-----------------|----------------|---------------------|-------------|---------------------------------|---------|
 | OpenAI | — | — | — | — | — | — | **not verified** |
 | Anthropic | — | — | — | — | — | — | **not verified** |
-| Google | — | — | — | — | — | — | **not verifiable** |
+| Google | — | — | — | — | — | — | **not run** |
 
 Verdict would be **stopped** when the billed output is near the chunks read,
 and **kept generating** when it is near 4000. Anything in between goes in the
 notes with the figure, not rounded to whichever verdict is more convenient.
 
-None of those three states was reached. OpenAI and Anthropic were not run at
-all — no credential. Google **cannot** be run: check (c) needs a stream to
-cancel, and costlane's Gemini adapter completes rather than streams, so the
-test skips it rather than producing a result. Configuring only Google therefore
-yields no evidence about cancellation from any provider, which is why the
-summary at the top of this file says so in bold rather than in a footnote.
+None of those three states was reached, for want of credentials rather than
+for want of a way to ask. Until v0.2 there was a second reason on the Google
+row — check (c) needs a stream to cancel and the Gemini adapter only completed
+— and that one is now gone.
+
+Gemini has a property worth noting before the run happens: it restates its
+running totals on every chunk, so the last chunk read before a disconnect is
+already the provider's exact count. Our side of the check will therefore be a
+measurement rather than an estimate. It says nothing about whether Google stops
+charging, which is the half only a dashboard can answer.
 
 ### What this means for the release
 
@@ -155,9 +160,20 @@ with the remedy: `disconnect_policy: drain` on any key where an exact figure
 matters more than the tokens it costs to obtain.
 
 Closing this gap needs funded credentials on OpenAI and Anthropic
-([#13](https://github.com/DiegohNY/costlane/issues/13)), and a streaming
-adapter for Gemini ([#12](https://github.com/DiegohNY/costlane/issues/12)).
-Neither is in v0.1.0.
+([#13](https://github.com/DiegohNY/costlane/issues/13)). The streaming adapter
+for Gemini ([#12](https://github.com/DiegohNY/costlane/issues/12)) landed in
+v0.2, so a Google credential is now enough to run every check against it:
+
+```bash
+COSTLANE_VERIFY_PROVIDERS=1 COSTLANE_GOOGLE_API_KEY=...   go test ./internal/providerverify/ -v -timeout 20m
+```
+
+One caveat for whoever runs it. The free tier allows twenty requests per day
+per model, and each of the three checks spends one; the cancellation check asks
+for four thousand output tokens, which is well inside the free input allowance
+but will show up on the dashboard as the largest of the three. A day's budget
+is enough for the run and for two retries, which the 503s that model returns
+make likely.
 
 What v0.1.0 does establish is narrow and real: for Gemini, costlane reads the
 provider's own token figures correctly, including the thinking tokens that are

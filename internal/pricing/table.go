@@ -206,6 +206,12 @@ func (t *Table) Cost(req Request) (Result, error) {
 		if count == 0 {
 			continue
 		}
+		// A breakdown of a kind that was already charged. Pricing it here
+		// would bill the same tokens twice; treating its missing rate as
+		// unpriced would flag a cost that is in fact complete.
+		if !kind.Billable() {
+			continue
+		}
 		if count < 0 {
 			return Result{}, fmt.Errorf("pricing: %s count is negative (%d)", kind, count)
 		}

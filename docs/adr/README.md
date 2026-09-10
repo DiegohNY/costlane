@@ -17,3 +17,4 @@ the [design document](../superpowers/specs/2026-09-09-costlane-design.md).
 | [0005](0005-no-client-header-passthrough.md) | Forward no client header by default | Relaying the client's headers upstream |
 | [0006](0006-partially-priced.md) | Record partially priced separately from unpriced | One `unpriced` boolean |
 | [0007](0007-redaction-by-possession.md) | Redact by what this process holds, not by pattern | Pattern matching known key formats |
+| [0008](0008-per-provider-clean-close.md) | Each provider decides what a clean close looks like | Treating a missing `[DONE]` as truncation |

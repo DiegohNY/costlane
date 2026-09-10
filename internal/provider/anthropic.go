@@ -413,6 +413,11 @@ func (p *Anthropic) Stream(ctx context.Context, req Request) (*Stream, error) {
 
 	translator := NewAnthropicStreamTranslator()
 	return &Stream{
+		// Without this the usage chunk assembled below never reached a
+		// client, however plainly it had asked: the field defaulted to
+		// false and the trailing chunk was dropped. Found while wiring the
+		// same field for Gemini.
+		ClientWantsUsage:  ClientAskedForUsage(req.Body),
 		Body:              resp.Body,
 		StatusCode:        resp.StatusCode,
 		Header:            resp.Header,
@@ -424,6 +429,7 @@ func (p *Anthropic) Stream(ctx context.Context, req Request) (*Stream, error) {
 		TrailingChunks: func() [][]byte {
 			return [][]byte{translator.UsageChunk()}
 		},
+		ClosedCleanly: translator.ClosedCleanly,
 		Usage: func() (Counts, bool) {
 			input, cachedRead, cacheWrite, output, reported := translator.Usage()
 			return Counts{

@@ -28,33 +28,44 @@ honours the malformed-chunk and fail-after-N scenario headers, and reports
 `thoughtsTokenCount` in the final `usageMetadata`. The upstream half of the
 test rig exists; only the adapter does not.
 
-- [ ] `(*Google).Stream` hitting `:streamGenerateContent?alt=sse`
-- [ ] `*Google` satisfies `provider.Streamer`; the router stops refusing it
-- [ ] Translator: Gemini SSE frames to OpenAI chat completion chunks, in the
+- [x] `(*Google).Stream` hitting `:streamGenerateContent?alt=sse`
+- [x] `*Google` satisfies `provider.Streamer`; the router stops refusing it
+- [x] Translator: Gemini SSE frames to OpenAI chat completion chunks, in the
       shape of `internal/provider/stream_anthropic.go`
-- [ ] Golden fixtures pinning the mapping event by event, one file per case,
+- [x] Golden fixtures pinning the mapping event by event, one file per case,
       so what is supported is enumerable rather than folded into prose
-- [ ] Usage from the final chunk's `usageMetadata`, output including
+- [x] Usage from the LAST chunk seen, cumulative rather than summed —
+      captured behaviour, not the documented one. Usage from the final chunk's `usageMetadata`, output including
       `thoughtsTokenCount` — the live verification found 121 thinking tokens
       against 1 visible one, so a translator that reads
       `candidatesTokenCount` alone would meter a request at under one
       percent of its cost
-- [ ] `Usage()` reports `reported: false` when the final chunk carries no
+- [x] `Usage()` reports `reported: false` when the final chunk carries no
       `usageMetadata`, so accounting falls back to the in-flight count and
       records `usage_source = estimate` rather than inventing a figure
-- [ ] TEST: a streamed Gemini request is relayed and priced to the token
+- [x] TEST: a streamed Gemini request is relayed and priced to the token
       against the fake provider
-- [ ] TEST: a malformed chunk mid-stream degrades rather than corrupting the
+- [x] TEST: a malformed chunk mid-stream degrades rather than corrupting the
       count (`X-Fake-Malformed-Chunk-At`)
-- [ ] TEST: a stream that dies before its usage chunk
+- [x] TEST: a stream that dies before its usage chunk
       (`X-Fake-Fail-After-Chunks`)
-- [ ] TEST: tool calls, if Gemini streams `functionCall` parts — the
+- [x] TEST: tool calls — they arrive whole in one chunk, so one delta
+      carries name and complete arguments, and no accumulator is needed.
+      Original note: tool calls, if Gemini streams `functionCall` parts — the
       Anthropic path reassembles partial JSON and requires the result to
       parse; this needs the same or an explicit refusal
-- [ ] `FuzzGeminiStreamTranslator`, wired into the PR job and the nightly
+- [x] `FuzzGoogleStreamTranslator`, wired into the PR job and the nightly
       run: it parses a third party's bytes, which is what fuzzing is for
-- [ ] README: remove "Gemini is non-streaming only" from known limitations
-- [ ] VERIFY: `docker compose up` streams from a Gemini model end to end
+- [x] README: remove "Gemini is non-streaming only" from known limitations
+- [x] VERIFY: an end-to-end proxy test streams a Gemini model through the
+      whole gateway and checks the accounting
+
+**Unplanned, and found along the way.** Three defects that predate this work:
+reasoning tokens marked every thinking request `partially_priced` although its
+cost was complete; negative token counts from a provider passed straight into
+the meter, where they become a free request; and the fake provider's Gemini
+streaming dialect matched neither the captures nor the documentation, because
+nothing had ever exercised it. All three are fixed here.
 
 **Why 3–4 days.** The Anthropic translator took most of F6 and this is the
 same shape of work with the fixture format and the fuzz harness already

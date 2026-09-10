@@ -127,6 +127,22 @@ func wrapUsagePayload(chunk []byte) []byte {
 	return out
 }
 
+// streamClosedCleanly reports whether a stream ended the way its provider's
+// protocol says a complete one does.
+//
+// There is no single test. OpenAI closes with [DONE], which is what the pump
+// records. Anthropic closes with message_stop and Gemini simply ends the
+// connection after a chunk carrying a finishReason — for those two, a missing
+// [DONE] says nothing, and treating it as truncation would put an error code
+// on every healthy stream. The adapter answers for its own protocol; a nil
+// answer means the pump's check is the right one.
+func streamClosedCleanly(stream *provider.Stream, result PumpResult) bool {
+	if stream.ClosedCleanly != nil {
+		return stream.ClosedCleanly()
+	}
+	return result.SawDone
+}
+
 // settleStream closes the reservation and records what the stream consumed.
 //
 // A stream that ended early still consumed tokens, so it settles like any
@@ -165,8 +181,13 @@ func (h *Handler) settleStream(r *http.Request, in streamInput,
 		counts[pricing.KindOutput] = int64(result.Chunks)
 		source = "estimate"
 	}
-	if result.ClientDisconnected && !result.Drained {
+	if result.ClientDisconnected && !result.Drained && !stream.UsageIsCumulative {
 		// Cancelled mid-stream, so the provider's own total never arrived.
+		//
+		// Unless the provider restates its totals on every chunk, as
+		// Gemini does: then the last chunk read is the provider's own
+		// exact figure up to the moment the client left, and calling that
+		// an estimate would understate what we actually know.
 		source = "tokenizer"
 	}
 
@@ -189,7 +210,7 @@ func (h *Handler) settleStream(r *http.Request, in streamInput,
 	errorCode := ""
 	if pumpErr != nil {
 		errorCode = "stream_interrupted"
-	} else if !result.SawDone {
+	} else if !streamClosedCleanly(stream, result) {
 		errorCode = "stream_truncated"
 	}
 

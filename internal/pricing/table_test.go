@@ -292,3 +292,79 @@ func TestUnknownServiceTierIsUnpricedNotStandard(t *testing.T) {
 		t.Error("a tier with no rows must be unpriced, not billed at standard")
 	}
 }
+
+// Thinking tokens are a breakdown of output, not a charge of their own.
+//
+// Every provider that reports them counts them inside its output total:
+// OpenAI's completion_tokens includes reasoning_tokens, and Google's output
+// is candidatesTokenCount + thoughtsTokenCount. Pricing the reasoning count
+// separately would bill those tokens twice; leaving it in the loop with no
+// rate behind it marked a complete, correct cost as partially priced.
+//
+// This is a v0.1.0 bug: every Gemini request that thought, and every OpenAI
+// reasoning request, carried partially_priced = true while its figure was
+// right all along.
+func TestReasoningIsABreakdownRatherThanACharge(t *testing.T) {
+	table, err := LoadSeed()
+	if err != nil {
+		t.Fatalf("loading prices: %v", err)
+	}
+	at := time.Date(2026, 9, 10, 0, 0, 0, 0, time.UTC)
+
+	for _, tc := range []struct {
+		name     string
+		model    string
+		provider string
+		thinking Counts
+		plain    Counts
+	}{
+		{
+			name: "google", model: "gemini-3.8-flash", provider: "google",
+			// The with-thinking capture: 45 in, 136 visible out, 264 thought.
+			// Google's normalisation folds thoughts into output, so output
+			// is 400 and reasoning repeats 264 of it.
+			thinking: Counts{
+				KindInput: 45, KindOutput: 400, KindReasoning: 264,
+			},
+			plain: Counts{KindInput: 45, KindOutput: 400},
+		},
+		{
+			name: "openai", model: "gpt-6-astra", provider: "openai",
+			thinking: Counts{
+				KindInput: 100, KindOutput: 500, KindReasoning: 300,
+			},
+			plain: Counts{KindInput: 100, KindOutput: 500},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			with, err := table.Cost(Request{
+				Model: tc.model, Provider: tc.provider, Tier: TierStandard,
+				At: at, Counts: tc.thinking,
+			})
+			if err != nil {
+				t.Fatalf("pricing with reasoning: %v", err)
+			}
+			without, err := table.Cost(Request{
+				Model: tc.model, Provider: tc.provider, Tier: TierStandard,
+				At: at, Counts: tc.plain,
+			})
+			if err != nil {
+				t.Fatalf("pricing without reasoning: %v", err)
+			}
+
+			if !with.Cost.Equal(without.Cost) {
+				t.Errorf("cost with reasoning = %s, without = %s: the reasoning "+
+					"count changed the figure, which means those tokens are "+
+					"being charged twice", with.Cost, without.Cost)
+			}
+			if with.PartiallyPriced {
+				t.Errorf("partially_priced = true with unpriced kinds %v: the cost "+
+					"is complete, and a flag saying otherwise sends someone "+
+					"looking for a hole that is not there", with.UnpricedKinds)
+			}
+			if with.Unpriced {
+				t.Error("unpriced = true: the model is priced")
+			}
+		})
+	}
+}
