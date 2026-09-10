@@ -356,8 +356,10 @@ Goal: the numbers are published and the first command works for free.
       streaming adapter) and not verified elsewhere
 - [x] Version stamped by ldflags and reported by `/healthz`
 - [x] Multi-arch image published to GHCR on a tag
-- [ ] v0.1.0 tagged, with a hand-written changelog
-- [ ] VERIFY: every box above is ticked
+- [x] v0.1.0 tagged, with a hand-written changelog
+- [x] VERIFY: multi-arch image present on GHCR for linux/amd64 and
+      linux/arm64, confirmed by reading the registry manifest
+- [x] VERIFY: every box above is ticked, or carries the reason it is not
 - [ ] REVIEW CHECKPOINT — v1 complete
 
 ---
@@ -387,14 +389,14 @@ Checked at every review checkpoint:
 
 ## Where this stands
 
-Last updated 2026-09-09, at the end of F7.
+Last updated 2026-09-10, at v0.1.0.
 
-**Merged through F7.** The gateway proxies, meters and enforces budgets, with
-streaming, a read API, health probes and a leak test. 310 tests pass across
-twelve packages; CI runs six required jobs (lint, test, integration, fuzz,
-leak, build).
+**Merged through F8, and released.** The gateway proxies, meters and enforces
+budgets, with streaming, a read API, health probes and a leak test. CI runs
+nine required jobs (lint, test, integration, fuzz, leak, build, quickstart,
+vulnerabilities, bench).
 
-**F8 is the remaining phase.** Nothing in it has been started.
+**F8 is complete.** v0.1.0 is tagged and the image is published.
 
 ### Picking this up on another machine
 
@@ -410,15 +412,46 @@ fail. `golangci-lint` is pinned to v2.13.2 in CI, and running it locally
 before pushing saves a round trip — three of the first pull requests were
 turned red by something it finds in seconds.
 
-### Two things deliberately left open
+### Where v0.1.0 landed
 
-**Per-provider disconnect behaviour is unverified** (F6). The cancel policy
-rests on providers stopping generation when a connection closes, which is
-documented but not confirmed against live APIs, because that needs real
-credentials. An operator who wants certainty over cost can set a key's
-`disconnect_policy` to `drain`.
+Tagged 2026-09-10. Nine required CI jobs: lint, test, integration, leak,
+fuzz, build, quickstart, vulnerabilities, bench. The image is published to
+`ghcr.io/diegohny/costlane:v0.1.0` for amd64 and arm64, with the version
+stamped by ldflags and reported by `/healthz`.
+
+Three things found while closing the phase, none of them by review:
+
+- **`govulncheck` found three reachable vulnerabilities on its first run**
+  (two in `golang.org/x/crypto`, one in `github.com/moby/go-archive`). Both
+  modules upgraded.
+- **The provider verification passed while verifying nothing.** It compared
+  costlane's counts against a body costlane had itself translated. It now
+  goes through a recording proxy and compares against the provider's own
+  bytes. See docs/provider-verification.md.
+- **The release workflow would have failed on the tag**, because GHCR
+  rejects a capital letter in an image name and this repository has two.
+  Found by reading the workflow before tagging rather than by tagging.
+
+### What v0.1.0 does not establish
+
+**The cancel default is unmeasured on every provider.** OpenAI and Anthropic
+had no funded credential; Google has no streaming adapter, so it has no
+stream to cancel. The README's known limitations lead with this, and name
+`disconnect_policy: drain` as the remedy for anyone who needs certainty
+rather than a documented default. Issues #12 and #13.
 
 **Prices are not mirrored into Postgres** (F2). They load from embedded YAML
-into an in-memory snapshot, which is what every lookup reads. A second copy in
-the database would be a second source of truth that could disagree with the
-one in use, so it was left out until something actually needs it.
+into an in-memory snapshot, which is what every lookup reads. A second copy
+in the database would be a second source of truth that could disagree with
+the one in use, so it was left out until something actually needs it.
+
+### v0.2
+
+Three issues, labelled `v0.2`:
+
+- #12 — Gemini streaming adapter. Also unblocks the cancellation check.
+- #13 — Verify cancel stops billing on real providers, by the method in
+  docs/provider-verification.md. Needs funded credentials.
+- #14 — Take the budget-remaining figure from the settle's `RETURNING`
+  rather than a separate `SELECT`, removing a round trip from the happy
+  path.
