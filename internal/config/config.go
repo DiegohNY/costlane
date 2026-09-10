@@ -64,6 +64,16 @@ type Config struct {
 	LogPrompts    bool
 	MigrateOnBoot bool
 
+	// PromptRetention is how long a stored prompt is kept. Prompt logging
+	// cannot be turned on without one: a copy of a customer's data with no
+	// expiry is a liability that grows on its own, and the operator who
+	// enables the capture is the one who has to name its lifetime.
+	PromptRetention time.Duration
+	// UsageRetention is how long accounting rows are kept. Zero keeps them
+	// forever, which is the right default for an audit trail.
+	UsageRetention    time.Duration
+	RetentionInterval time.Duration
+
 	MaxBodyBytes int64
 
 	// StreamWriteTimeout bounds one write to a streaming client. Without
@@ -157,6 +167,19 @@ func LoadFrom(look Lookup) (*Config, error) {
 	cfg.LogPrompts = boolean(look, "COSTLANE_LOG_PROMPTS", false, fail)
 	cfg.MigrateOnBoot = boolean(look, "COSTLANE_MIGRATE_ON_BOOT", true, fail)
 
+	cfg.PromptRetention = duration(look, "COSTLANE_PROMPT_RETENTION", 0, fail)
+	cfg.UsageRetention = duration(look, "COSTLANE_USAGE_RETENTION", 0, fail)
+	cfg.RetentionInterval = duration(look, "COSTLANE_RETENTION_INTERVAL", time.Hour, fail)
+
+	// Capturing prompts without an expiry is the failure this refuses to
+	// boot into: the capture is a debugging aid, and a debugging aid that
+	// accumulates customer data indefinitely is a breach waiting for
+	// someone to notice the table.
+	if cfg.LogPrompts && cfg.PromptRetention <= 0 {
+		fail("COSTLANE_LOG_PROMPTS is on but COSTLANE_PROMPT_RETENTION is not set: " +
+			"prompt capture requires a retention period")
+	}
+
 	// Spec 5.7. Draining runs after the provider timeout has elapsed, so a
 	// drain window wider than the provider window cannot be honoured.
 	if cfg.DrainTimeout > cfg.ProviderTimeout {
@@ -199,6 +222,8 @@ func (c *Config) String() string {
 		c.MaxBodyBytes, c.StreamWriteTimeout)
 	fmt.Fprintf(&b, "openai_key=%v anthropic_key=%v google_key=%v ",
 		c.OpenAIKey, c.AnthropicKey, c.GoogleKey)
+	fmt.Fprintf(&b, "prompt_retention=%s usage_retention=%s retention_interval=%s ",
+		c.PromptRetention, c.UsageRetention, c.RetentionInterval)
 	fmt.Fprintf(&b, "log_prompts=%t migrate_on_boot=%t", c.LogPrompts, c.MigrateOnBoot)
 	return b.String()
 }

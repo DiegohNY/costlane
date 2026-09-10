@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"sync/atomic"
 )
@@ -16,6 +17,12 @@ type Health struct {
 	db       Pinger
 	pricesOK func() bool
 	draining atomic.Bool
+
+	// Version is the build this process is running, stamped in at link
+	// time. Liveness reports it because that is the one endpoint always
+	// reachable: knowing which build answered is the first question of
+	// every incident, and asking it must not require a credential.
+	Version string
 }
 
 // Pinger is the little of a pool that a health check needs.
@@ -42,9 +49,19 @@ func (h *Health) Draining() bool { return h.draining.Load() }
 // Live answers whether the process is up. Nothing else: a dependency failing
 // is not a reason to be restarted.
 func (h *Health) Live(w http.ResponseWriter, _ *http.Request) {
+	version := h.Version
+	if version == "" {
+		// An unstamped binary is a local build. Saying so is more useful
+		// than an empty string, which reads like a bug in the probe.
+		version = "dev"
+	}
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte("ok\n"))
+	_ = json.NewEncoder(w).Encode(struct {
+		Status  string `json:"status"`
+		Version string `json:"version"`
+	}{Status: "ok", Version: version})
 }
 
 // Ready answers whether this process can serve a request now.

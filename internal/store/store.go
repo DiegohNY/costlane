@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -37,6 +38,11 @@ type Options struct {
 
 	MaxWriteConns int32
 	MaxReadConns  int32
+
+	// Tracer observes every query on both pools. Production leaves it nil;
+	// a test sets it to count the round trips a request actually makes,
+	// which is the only way to keep a claim about them honest.
+	Tracer pgx.QueryTracer
 }
 
 // DB owns a write pool and a read pool over the same database.
@@ -61,12 +67,12 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 		opts.MaxReadConns = 5
 	}
 
-	write, err := openPool(ctx, opts.DSN, opts.MaxWriteConns, 0)
+	write, err := openPool(ctx, opts.DSN, opts.MaxWriteConns, 0, opts.Tracer)
 	if err != nil {
 		return nil, fmt.Errorf("store: write pool: %w", err)
 	}
 
-	read, err := openPool(ctx, opts.DSN, opts.MaxReadConns, opts.ReadStatementTimeout)
+	read, err := openPool(ctx, opts.DSN, opts.MaxReadConns, opts.ReadStatementTimeout, opts.Tracer)
 	if err != nil {
 		write.Close()
 		return nil, fmt.Errorf("store: read pool: %w", err)
@@ -75,12 +81,14 @@ func Open(ctx context.Context, opts Options) (*DB, error) {
 	return &DB{write: write, read: read}, nil
 }
 
-func openPool(ctx context.Context, dsn string, maxConns int32, stmtTimeout time.Duration) (*pgxpool.Pool, error) {
+func openPool(ctx context.Context, dsn string, maxConns int32, stmtTimeout time.Duration,
+	tracer pgx.QueryTracer) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parsing DSN: %w", err)
 	}
 	cfg.MaxConns = maxConns
+	cfg.ConnConfig.Tracer = tracer
 	if stmtTimeout > 0 {
 		if cfg.ConnConfig.RuntimeParams == nil {
 			cfg.ConnConfig.RuntimeParams = map[string]string{}

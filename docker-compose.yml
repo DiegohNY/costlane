@@ -1,0 +1,61 @@
+# A complete costlane, with no provider credential and nothing to spend.
+#
+#   docker compose up --build
+#
+# The gateway talks to a fake provider that speaks all three dialects, so the
+# quickstart in the README works offline and for free. Point
+# COSTLANE_OPENAI_BASE_URL at api.openai.com and supply a real key to swap in
+# the genuine article.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: costlane
+      POSTGRES_PASSWORD: costlane
+      POSTGRES_DB: costlane
+    # No published port: nothing outside the compose network needs it, and a
+    # database on 5432 with a known password is how a demo becomes an
+    # incident.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U costlane -d costlane"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  fakeprovider:
+    build:
+      context: .
+    entrypoint: ["/fakeprovider"]
+    environment:
+      FAKEPROVIDER_ADDR: ":8081"
+    expose:
+      - "8081"
+
+  gateway:
+    build:
+      context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      fakeprovider:
+        condition: service_started
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    environment:
+      COSTLANE_DATABASE_URL: postgres://costlane:costlane@postgres:5432/costlane?sslmode=disable
+      # A development value, published on purpose: it is the master
+      # credential for a gateway that can only reach a fake provider.
+      # Generate your own with `openssl rand -hex 32` before deploying.
+      COSTLANE_MASTER_KEY: dev-master-key-not-for-production-0123456789
+      COSTLANE_MIGRATE_ON_BOOT: "true"
+      # Every provider points at the fake one. Its dialects are the real
+      # ones, so a request routed to a "claude" model exercises the
+      # Anthropic translation exactly as a live call would.
+      COSTLANE_OPENAI_API_KEY: fake-openai-key
+      COSTLANE_OPENAI_BASE_URL: http://fakeprovider:8081
+      COSTLANE_ANTHROPIC_API_KEY: fake-anthropic-key
+      COSTLANE_ANTHROPIC_BASE_URL: http://fakeprovider:8081
+      COSTLANE_GOOGLE_API_KEY: fake-google-key
+      COSTLANE_GOOGLE_BASE_URL: http://fakeprovider:8081

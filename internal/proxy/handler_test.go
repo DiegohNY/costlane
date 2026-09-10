@@ -27,9 +27,16 @@ type harness struct {
 	key     auth.Key
 }
 
-func newHarness(t *testing.T, limit string) *harness {
+func newHarness(t testing.TB, limit string) *harness {
 	t.Helper()
-	db := storetest.NewTestDB(t)
+	return newHarnessOn(t, limit, storetest.NewTestDB(t))
+}
+
+// newHarnessOn builds the same gateway over a database the caller supplies,
+// so a test that needs an instrumented pool does not have to reproduce the
+// wiring.
+func newHarnessOn(t testing.TB, limit string, db *store.DB) *harness {
+	t.Helper()
 	fake := httptest.NewServer(fakeprovider.Handler())
 	t.Cleanup(fake.Close)
 
@@ -75,7 +82,7 @@ func newHarness(t *testing.T, limit string) *harness {
 	return &harness{handler: h, db: db, fake: fake, key: key}
 }
 
-func (h *harness) post(t *testing.T, body string, headers map[string]string) *httptest.ResponseRecorder {
+func (h *harness) post(t testing.TB, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

@@ -298,3 +298,40 @@ func TestNoRenderingOfConfigLeaksCredentials(t *testing.T) {
 		t.Errorf("the connection target should stay visible: %s", cfg.String())
 	}
 }
+
+// Prompt capture without an expiry is a copy of a customer's data that
+// nothing ever deletes. The process refuses to boot rather than start
+// accumulating it, because by the time anyone notices the table the data is
+// already there.
+func TestPromptLoggingRequiresARetentionPeriod(t *testing.T) {
+	env := baseEnv()
+	env["COSTLANE_LOG_PROMPTS"] = "true"
+
+	_, err := LoadFrom(lookupFrom(env))
+	if err == nil {
+		t.Fatal("COSTLANE_LOG_PROMPTS=true with no retention must be rejected")
+	}
+	if !strings.Contains(err.Error(), "COSTLANE_PROMPT_RETENTION") {
+		t.Errorf("error must name the missing variable, got: %v", err)
+	}
+
+	env["COSTLANE_PROMPT_RETENTION"] = "168h"
+	cfg := withEnv(t, env)
+	if cfg.PromptRetention != 168*time.Hour {
+		t.Errorf("PromptRetention = %v, want 168h", cfg.PromptRetention)
+	}
+}
+
+// Retention off is the default, and it must not be dragged in by anything
+// else: a deployment that never enables prompt logging keeps its accounting
+// rows forever, which is what an audit trail is for.
+func TestRetentionIsOffByDefault(t *testing.T) {
+	cfg := withEnv(t, baseEnv())
+	if cfg.PromptRetention != 0 || cfg.UsageRetention != 0 {
+		t.Errorf("retention defaults = (%v, %v), want both zero",
+			cfg.PromptRetention, cfg.UsageRetention)
+	}
+	if cfg.RetentionInterval != time.Hour {
+		t.Errorf("RetentionInterval = %v, want 1h", cfg.RetentionInterval)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -118,18 +119,27 @@ func NewEmptyDB(t *testing.T) *store.DB {
 // one container rather than each starting their own.
 func NewBenchDB(tb testing.TB) *store.DB {
 	tb.Helper()
-	return newDB(tb)
+	return newDB(tb, nil)
 }
 
 // NewTestDB returns a fully migrated database, private to the calling test.
 // It lives outside a _test.go file so that packages built on top of the
 // store can use the same harness rather than inventing their own.
-func NewTestDB(t *testing.T) *store.DB {
+func NewTestDB(t testing.TB) *store.DB {
 	t.Helper()
-	return newDB(t)
+	return newDB(t, nil)
 }
 
-func newDB(t testing.TB) *store.DB {
+// NewTracedDB is NewTestDB with a query tracer attached to both pools. It
+// exists so a test can count the round trips a request makes: an assertion
+// about the shape of the request path is worth no more than the measurement
+// behind it.
+func NewTracedDB(t testing.TB, tracer pgx.QueryTracer) *store.DB {
+	t.Helper()
+	return newDB(t, tracer)
+}
+
+func newDB(t testing.TB, tracer pgx.QueryTracer) *store.DB {
 	t.Helper()
 	dsn := startPostgres(t)
 
@@ -147,6 +157,7 @@ func newDB(t testing.TB) *store.DB {
 	db, err := store.Open(t.Context(), store.Options{
 		DSN:                  store.ReplaceDBName(dsn, name),
 		ReadStatementTimeout: 2 * time.Second,
+		Tracer:               tracer,
 	})
 	if err != nil {
 		t.Fatalf("connecting to %s: %v", name, err)

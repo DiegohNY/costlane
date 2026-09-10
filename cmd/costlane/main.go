@@ -24,6 +24,13 @@ import (
 	"github.com/DiegohNY/costlane/internal/usage"
 )
 
+// version is stamped at link time:
+//
+//	go build -ldflags="-X main.version=v0.1.0" ./cmd/costlane
+//
+// An unstamped build reports "dev", which is what a local one is.
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "costlane: %v\n", err)
@@ -41,7 +48,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	logger.Info("configuration loaded", "config", cfg.String())
+	logger.Info("configuration loaded", "version", version, "config", cfg.String())
 
 	db, err := store.Open(ctx, store.Options{
 		DSN:                  cfg.DatabaseURL.Expose(),
@@ -103,6 +110,7 @@ func run() error {
 	// reach the Flusher underneath. Without that, streaming degrades into
 	// one buffered response and nothing says so.
 	health := api.NewHealth(db, func() bool { return prices.Table() != nil })
+	health.Version = version
 
 	server := api.New(api.Options{
 		DB:             db,
@@ -140,6 +148,16 @@ func run() error {
 	reaperCtx, stopReaper := context.WithCancel(context.Background())
 	defer stopReaper()
 	go reaper.Run(reaperCtx)
+
+	// Retention is what makes the configured lifetime real. Without this
+	// loop COSTLANE_PROMPT_RETENTION would be a promise the process never
+	// keeps, which is worse than not offering it.
+	if cfg.PromptRetention > 0 || cfg.UsageRetention > 0 {
+		go runRetention(reaperCtx, db, logger, store.RetentionPolicy{
+			RequestPayloads: cfg.PromptRetention,
+			UsageRecords:    cfg.UsageRetention,
+		}, cfg.RetentionInterval)
+	}
 
 	httpServer := &http.Server{
 		Addr:              cfg.ListenAddr,
@@ -212,6 +230,35 @@ func run() error {
 
 	logger.Info("shutdown complete")
 	return nil
+}
+
+// runRetention deletes rows past their configured lifetime, on a ticker.
+//
+// ponytail: one bounded batch per tick, so a large backlog drains over
+// several hours rather than in one long-running delete. If that is ever too
+// slow, shorten the interval before enlarging the batch — the batch size is
+// what keeps the delete from holding locks against live traffic.
+func runRetention(ctx context.Context, db *store.DB, logger *slog.Logger,
+	policy store.RetentionPolicy, every time.Duration) {
+	ticker := time.NewTicker(every)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			result, err := db.ApplyRetention(ctx, policy)
+			if err != nil {
+				logger.Error("applying retention", "error", err)
+				continue
+			}
+			if result.RequestPayloads > 0 || result.UsageRecords > 0 {
+				logger.Info("retention applied",
+					"payloads_deleted", result.RequestPayloads,
+					"usage_records_deleted", result.UsageRecords)
+			}
+		}
+	}
 }
 
 // databasePassword extracts the credential from a connection string, so the
