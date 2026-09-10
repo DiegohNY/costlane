@@ -1,7 +1,23 @@
 # Provider verification
 
-**Status: not yet run.** Awaiting funded credentials for OpenAI, Anthropic and
-Google. No release should be tagged before the table below is filled in.
+**Status at v0.1.0: partially run — one check on one provider.**
+
+| Check | OpenAI | Anthropic | Google |
+|---|---|---|---|
+| (a) non-streaming counts | not verified | not verified | **verified** |
+| (b) streaming counts | not verified | not verified | not applicable |
+| (c) cancellation stops billing | **not verified** | **not verified** | **not verifiable** |
+
+Read that table before reading anything else in this repository about
+cancellation. **No provider has been measured for check (c).** OpenAI and
+Anthropic had no funded credentials when v0.1.0 was tagged; Google has no
+streaming adapter in costlane, so there is no stream to cancel and the check
+cannot be run against it at all. The cancel default therefore rests on
+documented provider behaviour, not on a measurement taken here.
+
+An operator who needs certainty over cost rather than a documented default
+should set `disconnect_policy: drain` on the keys concerned, and pay for an
+exact figure.
 
 Everything else in this repository is tested against a fake provider. That
 proves the gateway does what it intends; it cannot prove that what it intends
@@ -75,27 +91,40 @@ output tokens charged. That confirmation is recorded by hand below.
 
 ## Results
 
-Run on: _pending_
-Gateway version: _pending_
+Run on: 2026-09-10 (UTC)
+Gateway version: v0.1.0
 
 ### (a) Non-streaming counts
 
-| Provider | Model | Our count (in/out) | Reported (in/out) | Match | Provider request id |
-|----------|-------|--------------------|-------------------|-------|---------------------|
-| OpenAI | | | | | |
-| Anthropic | | | | | |
-| Google | | | | | |
+| Provider | Model | Our count (in/out) | Provider reported (in/out) | Match | Provider request id |
+|----------|-------|--------------------|----------------------------|-------|---------------------|
+| OpenAI | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Anthropic | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Google | gemini-3.8-flash | 9 / 122 | 9 / 122 | **exact** | none returned (see notes) |
+
+The Gemini payload behind that row, as the provider sent it:
+
+```json
+{"promptTokenCount":9,"candidatesTokenCount":1,"totalTokenCount":131,
+ "promptTokensDetails":[{"modality":"TEXT","tokenCount":9}],
+ "thoughtsTokenCount":121,"serviceTier":"standard"}
+```
+
+costlane counted `input=9, cached_read=0, output=122, reasoning=121`. Output is
+122 because Gemini bills thinking tokens as output and reports them apart from
+it: 1 visible token plus 121 of thinking. A meter that read
+`candidatesTokenCount` alone would have billed this request at under one
+percent of what it cost. That is the exact class of mistake this check exists
+to catch, and it is the reason the comparison is made against the provider's
+raw payload rather than against anything costlane produced.
 
 ### (b) Streaming counts
 
 | Provider | Model | Our count (in/out) | Reported (in/out) | Match | Provider request id |
 |----------|-------|--------------------|-------------------|-------|---------------------|
-| OpenAI | | | | | |
-| Anthropic | | | | | |
-| Google | | | | | |
-
-Google has no streaming adapter today; that row is expected to read
-"not applicable" rather than to pass.
+| OpenAI | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Anthropic | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Google | — | — | — | **not applicable** | costlane has no Gemini streaming adapter |
 
 ### (c) Billing stops on cancellation
 
@@ -103,21 +132,68 @@ Ceiling asked for in every row: `max_tokens: 4000`. Cancelled after one chunk.
 
 | Provider | Started (UTC) | Cancelled (UTC) | Stopped within | Provider request id | Chunks read | Dashboard: output tokens billed | Verdict |
 |----------|---------------|-----------------|----------------|---------------------|-------------|---------------------------------|---------|
-| OpenAI | | | | | | | |
-| Anthropic | | | | | | | |
-| Google | | | | | | | |
+| OpenAI | — | — | — | — | — | — | **not verified** |
+| Anthropic | — | — | — | — | — | — | **not verified** |
+| Google | — | — | — | — | — | — | **not verifiable** |
 
-Verdict is **stopped** when the billed output is near the chunks read, and
-**kept generating** when it is near 4000. Anything in between goes in the notes
-with the figure, not rounded to whichever verdict is more convenient.
+Verdict would be **stopped** when the billed output is near the chunks read,
+and **kept generating** when it is near 4000. Anything in between goes in the
+notes with the figure, not rounded to whichever verdict is more convenient.
 
-Dashboard checked by: _pending_ — on: _pending_
+None of those three states was reached. OpenAI and Anthropic were not run at
+all — no credential. Google **cannot** be run: check (c) needs a stream to
+cancel, and costlane's Gemini adapter completes rather than streams, so the
+test skips it rather than producing a result. Configuring only Google therefore
+yields no evidence about cancellation from any provider, which is why the
+summary at the top of this file says so in bold rather than in a footnote.
+
+### What this means for the release
+
+v0.1.0 ships with the cancel default **unmeasured**. That is a smaller claim
+than the one the design makes, and the README's known limitations say so, along
+with the remedy: `disconnect_policy: drain` on any key where an exact figure
+matters more than the tokens it costs to obtain.
+
+Closing this gap needs funded credentials on OpenAI and Anthropic
+([#13](https://github.com/DiegohNY/costlane/issues/13)), and a streaming
+adapter for Gemini ([#12](https://github.com/DiegohNY/costlane/issues/12)).
+Neither is in v0.1.0.
+
+What v0.1.0 does establish is narrow and real: for Gemini, costlane reads the
+provider's own token figures correctly, including the thinking tokens that are
+billed as output and reported separately.
+
+Dashboard checked by: not applicable — no cancellation run produced a request
+to look up.
 
 ### Notes
 
-_Anything surprising goes here: a dialect that differs from its documentation,
-a dashboard that reports with a delay, a provider that keeps generating after
-the connection closes._
+**The first version of this check verified nothing, and passed.** It compared
+costlane's counts against the body `Complete` returns — which for Anthropic and
+Google is already *translated into the OpenAI dialect by costlane*. Two halves
+of the same code agreeing with each other is not a second opinion. Only OpenAI,
+whose dialect passes through untouched, was ever genuinely compared. The check
+now routes the adapter through a recording proxy (`upstreamRecorder`) that
+keeps the bytes the provider actually sent, and compares against those. The
+figures in the table above come from that version.
+
+**A recording proxy must not forward `Accept-Encoding`.** Go's transport adds
+the header itself and transparently decompresses the reply — but only when it
+was the one to add it. Copying the client's header forward makes compression
+the caller's business, and the recorder ends up holding gzip bytes instead of
+the JSON it exists to read. The first run after the fix was still a failure,
+with a body of binary noise, which is what pointed at it.
+
+**Gemini returns no request id.** There is no `X-Request-Id` header on a
+`generateContent` response, so `provider_request_id` is empty for that row and
+a dashboard lookup has to go by timestamp. Nothing is wrong; it is simply not
+offered.
+
+**`gemini-3.8-flash` returns 503 UNAVAILABLE often.** "This model is currently
+experiencing high demand." Ten consecutive attempts failed at one point and the
+next succeeded. It is transient capacity, not authentication and not a wrong
+model name — those return 401 and 404. Worth knowing before reading a failed
+verification run as a defect.
 
 ## If a check fails
 

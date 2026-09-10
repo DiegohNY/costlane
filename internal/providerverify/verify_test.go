@@ -27,9 +27,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,11 +41,18 @@ import (
 )
 
 // target is one provider to verify, with the model to spend on.
+//
+// The adapter is built on demand rather than held, because one of the checks
+// has to point it at a recording proxy instead of at the provider directly.
 type target struct {
-	name  string
-	model string
-	p     provider.Provider
+	name    string
+	model   string
+	baseURL string
+	build   func(baseURL string) provider.Provider
 }
+
+// p returns the adapter talking straight to the provider.
+func (t target) p() provider.Provider { return t.build(t.baseURL) }
 
 // targets builds the set of providers that have a credential in the
 // environment. A provider with no key is skipped rather than failed: the
@@ -65,33 +74,165 @@ func targets(t *testing.T) []target {
 	var out []target
 	if key := os.Getenv("COSTLANE_OPENAI_API_KEY"); key != "" {
 		out = append(out, target{
-			name:  "openai",
-			model: env("COSTLANE_VERIFY_OPENAI_MODEL", "gpt-5.6-terra"),
-			p: provider.NewOpenAI(opts(
-				env("COSTLANE_OPENAI_BASE_URL", "https://api.openai.com"), key)),
+			name:    "openai",
+			model:   env("COSTLANE_VERIFY_OPENAI_MODEL", "gpt-5.6-terra"),
+			baseURL: env("COSTLANE_OPENAI_BASE_URL", "https://api.openai.com"),
+			build: func(base string) provider.Provider {
+				return provider.NewOpenAI(opts(base, key))
+			},
 		})
 	}
 	if key := os.Getenv("COSTLANE_ANTHROPIC_API_KEY"); key != "" {
 		out = append(out, target{
-			name:  "anthropic",
-			model: env("COSTLANE_VERIFY_ANTHROPIC_MODEL", "claude-sonnet-5"),
-			p: provider.NewAnthropic(opts(
-				env("COSTLANE_ANTHROPIC_BASE_URL", "https://api.anthropic.com"), key)),
+			name:    "anthropic",
+			model:   env("COSTLANE_VERIFY_ANTHROPIC_MODEL", "claude-sonnet-5"),
+			baseURL: env("COSTLANE_ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+			build: func(base string) provider.Provider {
+				return provider.NewAnthropic(opts(base, key))
+			},
 		})
 	}
 	if key := os.Getenv("COSTLANE_GOOGLE_API_KEY"); key != "" {
 		out = append(out, target{
 			name:  "google",
 			model: env("COSTLANE_VERIFY_GOOGLE_MODEL", "gemini-3.8-flash"),
-			p: provider.NewGoogle(opts(
-				env("COSTLANE_GOOGLE_BASE_URL",
-					"https://generativelanguage.googleapis.com"), key)),
+			baseURL: env("COSTLANE_GOOGLE_BASE_URL",
+				"https://generativelanguage.googleapis.com"),
+			build: func(base string) provider.Provider {
+				return provider.NewGoogle(opts(base, key))
+			},
 		})
 	}
 	if len(out) == 0 {
 		t.Skip("no provider credential in the environment")
 	}
 	return out
+}
+
+// upstreamRecorder is a transparent proxy in front of a real provider that
+// keeps a copy of the response body.
+//
+// It exists because of a hole this test had on its first run. Complete()
+// returns a body already translated into the OpenAI dialect, so comparing our
+// counts against that body compares costlane's arithmetic with costlane's own
+// translation — two halves of the same code agreeing with each other, which is
+// not verification of anything. Only OpenAI, whose dialect passes through
+// untouched, was ever genuinely checked.
+//
+// Pointing the adapter at this proxy keeps the call exactly as it would be —
+// the same translated request, the same endpoint, the same response — while
+// giving the test the bytes the provider actually sent.
+type upstreamRecorder struct {
+	base   string
+	client *http.Client
+
+	mu   sync.Mutex
+	last []byte
+}
+
+func (u *upstreamRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	target := u.base + r.URL.Path
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, target,
+		bytes.NewReader(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for name, values := range r.Header {
+		if skipForward(name) {
+			continue
+		}
+		for _, v := range values {
+			req.Header.Add(name, v)
+		}
+	}
+
+	resp, err := u.client.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	u.mu.Lock()
+	u.last = raw
+	u.mu.Unlock()
+
+	for name, values := range resp.Header {
+		if skipReturn(name) {
+			continue
+		}
+		for _, v := range values {
+			w.Header().Add(name, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = w.Write(raw)
+}
+
+// skipForward names the request headers that describe this hop rather than
+// the call.
+//
+// Accept-Encoding is the one that matters and the one that cost an hour. Go's
+// transport adds it and transparently decompresses the reply — but only when
+// it added the header itself. Copying the client's Accept-Encoding forward
+// makes the transport treat compression as the caller's business, so the
+// recorder ends up holding gzip bytes instead of the JSON it exists to read.
+// Dropping it lets each hop negotiate its own encoding, which is what a proxy
+// should do anyway.
+func skipForward(name string) bool {
+	switch strings.ToLower(name) {
+	case "host", "content-length", "accept-encoding",
+		"connection", "transfer-encoding":
+		return true
+	}
+	return false
+}
+
+// skipReturn names the response headers that describe the upstream hop's
+// framing. The body being written here is already decoded, so passing on its
+// original encoding or length would describe bytes that no longer exist.
+func skipReturn(name string) bool {
+	switch strings.ToLower(name) {
+	case "content-encoding", "content-length",
+		"connection", "transfer-encoding":
+		return true
+	}
+	return false
+}
+
+func (u *upstreamRecorder) upstreamBody() []byte {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	return append([]byte(nil), u.last...)
+}
+
+// recordingFront puts a recorder in front of one target and returns the
+// adapter that goes through it.
+func recordingFront(t *testing.T, tgt target) (provider.Provider, *upstreamRecorder) {
+	t.Helper()
+	rec := &upstreamRecorder{
+		base:   tgt.baseURL,
+		client: &http.Client{Timeout: 120 * time.Second},
+	}
+	srv := httptest.NewServer(rec)
+	t.Cleanup(srv.Close)
+	return tgt.build(srv.URL), rec
 }
 
 func env(key, fallback string) string {
@@ -122,24 +263,36 @@ func body(model string, stream bool, prompt string) []byte {
 func reportedUsage(raw []byte) map[string]int64 {
 	var envelope struct {
 		Usage struct {
+			// OpenAI. prompt_tokens already includes cached reads.
 			PromptTokens     int64 `json:"prompt_tokens"`
 			CompletionTokens int64 `json:"completion_tokens"`
-			InputTokens      int64 `json:"input_tokens"`
-			OutputTokens     int64 `json:"output_tokens"`
+			// Anthropic. input_tokens EXCLUDES cache, which is reported
+			// beside it, so the two have to be added back together to
+			// arrive at what was read in.
+			InputTokens          int64 `json:"input_tokens"`
+			OutputTokens         int64 `json:"output_tokens"`
+			CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
 		} `json:"usage"`
+		// Google.
 		UsageMetadata struct {
 			PromptTokenCount     int64 `json:"promptTokenCount"`
 			CandidatesTokenCount int64 `json:"candidatesTokenCount"`
+			// Thinking tokens are billed as output and reported apart from
+			// it, so output is the sum. This is the provider's documented
+			// billing rule, read here from its own payload.
+			ThoughtsTokenCount int64 `json:"thoughtsTokenCount"`
 		} `json:"usageMetadata"`
 	}
 	if err := json.Unmarshal(raw, &envelope); err != nil {
 		return nil
 	}
 
-	in := envelope.Usage.PromptTokens + envelope.Usage.InputTokens +
+	in := envelope.Usage.PromptTokens +
+		envelope.Usage.InputTokens + envelope.Usage.CacheReadInputTokens +
 		envelope.UsageMetadata.PromptTokenCount
 	out := envelope.Usage.CompletionTokens + envelope.Usage.OutputTokens +
-		envelope.UsageMetadata.CandidatesTokenCount
+		envelope.UsageMetadata.CandidatesTokenCount +
+		envelope.UsageMetadata.ThoughtsTokenCount
 	if in == 0 && out == 0 {
 		return nil
 	}
@@ -155,19 +308,33 @@ func TestNonStreamingCountsMatchTheProviderExactly(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 			defer cancel()
 
-			resp, err := tgt.p.Complete(ctx, provider.Request{
+			// Through a recorder, so the comparison is against the bytes the
+			// provider sent rather than against our own translation of them.
+			p, rec := recordingFront(t, tgt)
+
+			resp, err := p.Complete(ctx, provider.Request{
 				Body:      body(tgt.model, false, "Reply with the single word: ok."),
 				Model:     tgt.model,
 				MaxTokens: 16,
 			})
 			if err != nil {
-				t.Fatalf("calling %s: %v", tgt.name, err)
+				// The recorder holds what the provider actually said, which
+				// is the difference between "it failed" and knowing why.
+				t.Fatalf("calling %s: %v\nupstream body: %s",
+					tgt.name, err, truncate(rec.upstreamBody()))
 			}
 
-			reported := reportedUsage(resp.Body)
+			upstream := rec.upstreamBody()
+			if len(upstream) == 0 {
+				t.Fatal("the recorder saw no upstream response; the adapter did " +
+					"not go through it, and this check would be comparing " +
+					"costlane against itself")
+			}
+
+			reported := reportedUsage(upstream)
 			if reported == nil {
-				t.Fatalf("no usage in the %s response; the dialect has changed:\n%s",
-					tgt.name, truncate(resp.Body))
+				t.Fatalf("no usage in the raw %s response; the dialect has changed:\n%s",
+					tgt.name, truncate(upstream))
 			}
 
 			gotInput := resp.Counts["input"] + resp.Counts["cached_read"]
@@ -180,9 +347,13 @@ func TestNonStreamingCountsMatchTheProviderExactly(t *testing.T) {
 			// Printed for docs/provider-verification.md: a claim about a
 			// provider is worth nothing without the request id that
 			// supports it.
-			t.Logf("VERIFIED %s non-stream at %s: model=%s provider_request_id=%s "+
-				"counts=%v", tgt.name, time.Now().UTC().Format(time.RFC3339),
-				resp.ServedModel, resp.ProviderRequestID, resp.Counts)
+			t.Logf("VERIFIED %s non-stream at %s: model=%s provider_request_id=%q\n"+
+				"  our counts:     %v\n"+
+				"  provider says:  input=%d output=%d\n"+
+				"  raw usage:      %s",
+				tgt.name, time.Now().UTC().Format(time.RFC3339),
+				resp.ServedModel, resp.ProviderRequestID, resp.Counts,
+				reported["input"], reported["output"], usageFragment(upstream))
 		})
 	}
 }
@@ -192,7 +363,7 @@ func TestNonStreamingCountsMatchTheProviderExactly(t *testing.T) {
 // accounting exact rather than estimated.
 func TestStreamingCountsMatchTheProviderExactly(t *testing.T) {
 	for _, tgt := range targets(t) {
-		streamer, ok := tgt.p.(provider.Streamer)
+		streamer, ok := tgt.p().(provider.Streamer)
 		if !ok {
 			t.Logf("SKIP %s: this adapter does not stream", tgt.name)
 			continue
@@ -289,7 +460,7 @@ const cancelMaxTokens = 4000
 // line says it did.
 func TestCancellingMidStreamStopsTheUpstream(t *testing.T) {
 	for _, tgt := range targets(t) {
-		streamer, ok := tgt.p.(provider.Streamer)
+		streamer, ok := tgt.p().(provider.Streamer)
 		if !ok {
 			continue
 		}
@@ -380,4 +551,24 @@ func truncate(b []byte) string {
 		return fmt.Sprintf("%s… (%d bytes)", b[:limit], len(b))
 	}
 	return string(b)
+}
+
+// usageFragment extracts just the usage object from a provider payload, so the
+// log line carries the provider's own figures without the completion text
+// beside them. A verification record is worth what its evidence is worth.
+func usageFragment(raw []byte) string {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return "(unparseable)"
+	}
+	for _, key := range []string{"usage", "usageMetadata"} {
+		if fragment, ok := envelope[key]; ok {
+			compact := &bytes.Buffer{}
+			if err := json.Compact(compact, fragment); err != nil {
+				return string(fragment)
+			}
+			return key + ": " + compact.String()
+		}
+	}
+	return "(no usage object)"
 }
