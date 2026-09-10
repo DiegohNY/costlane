@@ -184,3 +184,31 @@ func readLines(t *testing.T, path string) []string {
 	}
 	return out
 }
+
+// A client that asks for usage on a translated stream must receive the chunk.
+//
+// It did not. ClientWantsUsage defaulted to false for every provider except
+// OpenAI, and the proxy drops the trailing chunks unless it is set — so the
+// usage chunk Anthropic's translator carefully assembles was built and thrown
+// away on every request. Found while wiring the same field for Gemini, which
+// had inherited the gap.
+func TestTranslatedStreamsReportWhetherTheClientAskedForUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"asked", `{"model":"m","stream":true,"stream_options":{"include_usage":true}}`, true},
+		{"asked for false", `{"model":"m","stream":true,"stream_options":{"include_usage":false}}`, false},
+		{"did not ask", `{"model":"m","stream":true}`, false},
+		{"empty options", `{"model":"m","stream":true,"stream_options":{}}`, false},
+		{"options are not an object", `{"model":"m","stream_options":"yes"}`, false},
+		{"not JSON at all", `not json`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := provider.ClientAskedForUsage([]byte(tc.body)); got != tc.want {
+				t.Errorf("ClientAskedForUsage(%s) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}

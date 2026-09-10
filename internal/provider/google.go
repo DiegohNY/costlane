@@ -141,6 +141,10 @@ func (p *Google) Stream(ctx context.Context, req Request) (*Stream, error) {
 
 	translator := NewGoogleStreamTranslator()
 	return &Stream{
+		// Gemini reports usage whether or not anyone asked, so nothing is
+		// injected; the client's own request decides only whether the
+		// chunk built from those figures reaches it.
+		ClientWantsUsage:  ClientAskedForUsage(req.Body),
 		Body:              resp.Body,
 		StatusCode:        resp.StatusCode,
 		Header:            resp.Header,

@@ -503,14 +503,15 @@ func TestGeminiStreamEndToEnd(t *testing.T) {
 	srv := h.serve(t)
 
 	req := h.streamRequest(t, srv,
-		`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],"stream":true}`,
+		`{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],`+
+			`"stream":true,"stream_options":{"include_usage":true}}`,
 		map[string]string{
 			fakeprovider.HeaderPromptTokens:     "45",
 			fakeprovider.HeaderCompletionTokens: "136",
 			fakeprovider.HeaderReasoningTokens:  "264",
 		})
 	resp := h.send(t, srv, req)
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d", resp.StatusCode)
@@ -569,8 +570,10 @@ func TestGeminiStreamEndToEnd(t *testing.T) {
 	waitForSettle(t, h)
 
 	var (
-		source          string
-		errorCode       string
+		source string
+		// error_code is NULL for a stream that ended the way its protocol
+		// says it should, which is exactly what this test is checking.
+		errorCode       *string
 		partiallyPriced bool
 		outputTokens    int64
 		reasoning       int64
@@ -586,10 +589,10 @@ func TestGeminiStreamEndToEnd(t *testing.T) {
 	if source != "provider" {
 		t.Errorf("usage_source = %q, want provider", source)
 	}
-	if errorCode != "" {
-		t.Errorf("error_code = %q, want empty: a Gemini stream ends by closing "+
+	if errorCode != nil {
+		t.Errorf("error_code = %q, want NULL: a Gemini stream ends by closing "+
 			"the connection after a finishReason, which is a clean close",
-			errorCode)
+			*errorCode)
 	}
 	if partiallyPriced {
 		t.Error("partially_priced = true: thinking tokens are a breakdown of " +

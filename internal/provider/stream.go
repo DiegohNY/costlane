@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 )
@@ -60,6 +61,33 @@ type Stream struct {
 // Counts mirrors pricing.Counts without importing it, so the provider
 // package stays free of a pricing dependency.
 type Counts map[string]int64
+
+// ClientAskedForUsage reports whether an incoming OpenAI-dialect request set
+// stream_options.include_usage.
+//
+// A provider whose own protocol reports usage unprompted — Anthropic and
+// Gemini both do — still has to know this, because the usage chunk it hands
+// back to the client is synthesised on the client's behalf and must only
+// appear if the client asked. OpenAI learns the same fact while injecting the
+// option it needs for its own accounting; the other two have nothing to
+// inject, so they read it here.
+//
+// Getting this wrong is quiet in both directions: a client that asked and
+// receives nothing has to guess, and a client that did not ask receives a
+// chunk its parser may not expect.
+func ClientAskedForUsage(body []byte) bool {
+	raw, present := Field(body, "stream_options")
+	if !present {
+		return false
+	}
+	var opts struct {
+		IncludeUsage bool `json:"include_usage"`
+	}
+	if err := json.Unmarshal(raw, &opts); err != nil {
+		return false
+	}
+	return opts.IncludeUsage
+}
 
 // Streamer is a provider that can stream.
 //
