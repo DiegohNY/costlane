@@ -349,8 +349,11 @@ Goal: the numbers are published and the first command works for free.
       and no retention
 - [x] A test that counts the database round trips on the happy path
 - [x] Live-provider verification harness (`internal/providerverify`)
-- [ ] Live-provider verification RUN, with results in
-      `docs/provider-verification.md`
+- [x] Live-provider verification RUN as far as credentials allowed, with
+      results and non-results in `docs/provider-verification.md`: Gemini
+      non-streaming counts verified exactly; OpenAI and Anthropic not
+      verified (no credential); cancellation not verifiable on Google (no
+      streaming adapter) and not verified elsewhere
 - [x] Version stamped by ldflags and reported by `/healthz`
 - [x] Multi-arch image published to GHCR on a tag
 - [ ] v0.1.0 tagged, with a hand-written changelog

@@ -3,7 +3,7 @@
 Written by hand. A list generated from commit subjects tells you what was
 touched; this tells you what changed for you.
 
-## v0.1.0 — unreleased
+## v0.1.0 — 2026-09-10
 
 The first release. costlane proxies chat completions to OpenAI, Anthropic and
 Google, meters every request exactly, and refuses one that would take a
@@ -46,16 +46,32 @@ virtual key past its budget.
 
 ### Known limitations
 
-Vertex AI and Bedrock are not supported. Google does not stream. Translation
-covers chat completions and tool calls, not embeddings, images, audio, or the
-Assistants and Responses APIs. There is one master credential and no user
-accounts, no rate limiting, and no per-user attribution. Budgets are monthly
-on UTC. No caching, no failover, no frontend.
+Two of these are load-bearing enough to have issues of their own.
+
+- **Gemini is non-streaming only.** There is no Gemini streaming adapter, so a
+  streamed request to a Gemini model is refused by name rather than buffered.
+  First item of v0.2 — [#12](https://github.com/DiegohNY/costlane/issues/12).
+- **The cancel default is not measured on any provider.** costlane closes the
+  upstream connection when a client disconnects, on documented provider
+  behaviour that has not been confirmed against a live API: OpenAI and
+  Anthropic had no funded credential at release, and Google has no stream to
+  cancel. If you need certainty over cost rather than a documented default, set
+  `disconnect_policy: drain` on the keys concerned —
+  [#13](https://github.com/DiegohNY/costlane/issues/13).
+
+The rest, in one paragraph: Vertex AI and Bedrock are not supported.
+Translation covers chat completions and tool calls, not embeddings, images,
+audio, or the Assistants and Responses APIs. There is one master credential and
+no user accounts, no rate limiting, and no per-user attribution. Budgets are
+monthly on UTC. No caching, no failover, no frontend.
 
 ### Verification
 
-Live-provider verification — that a cancelled stream stops the meter, and that
-the token fields read are the ones the providers send — is recorded in
+Token counting was checked against a live Gemini API and agrees to the token,
+including the thinking tokens Gemini bills as output and reports separately.
+Everything else is tested against a fake provider that reproduces each dialect.
+What was checked and what was not — with the raw provider payload behind the
+one row that passed — is in
 [docs/provider-verification.md](docs/provider-verification.md).
 
 ### Container image
