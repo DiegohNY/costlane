@@ -17,6 +17,12 @@ touched; this tells you what changed for you.
   Anthropic with `message_stop`, Gemini by closing the connection after a
   chunk carrying a `finishReason`. Each adapter answers for its own protocol
   ([ADR 0008](docs/adr/0008-per-provider-clean-close.md)).
+- **`:latest` moves only after the image has booted.** A release now pushes
+  the version tag, starts that exact image against a real Postgres, waits for
+  `/readyz` and checks that `/healthz` reports the tag — and only then
+  re-points `:latest`, by copying the manifest that was tested rather than by
+  building a second time. A release that fails its own boot check leaves
+  `:latest` where it was.
 - **Exact accounting for a cancelled Gemini stream.** Gemini restates its
   running totals on every chunk, so the last one read before a disconnect is
   the provider's own figure. Those records say `usage_source = provider`
