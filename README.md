@@ -310,6 +310,7 @@ refusal:      UPDATE key_budgets → SELECT vk.revoked_at, ...
 - [Security](SECURITY.md) — threat model, and how to report a vulnerability.
 - [Implementation plan](docs/superpowers/plans/IMPLEMENTATION.md) — phased,
   with progress tracked in-repo.
+- [v0.2 plan](docs/plan-v0.2.md) — what is next, in order, with estimates.
 
 ## License
 
