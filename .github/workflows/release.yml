@@ -50,3 +50,86 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:${{ github.ref_name }}
             ${{ env.IMAGE }}:latest
+
+  # The image is the artifact people actually run, and until now nothing ran
+  # it. The version reported by /healthz is stamped at link time by a
+  # Dockerfile ARG, so it is exactly the kind of thing that keeps working in
+  # unit tests while being wrong in the image: a typo in the build-arg name
+  # would leave a binary that says "dev" and a green build to go with it.
+  #
+  # This starts the published image, on a real Postgres, and asks it.
+  smoke:
+    name: smoke-test the published image
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: costlane
+          POSTGRES_PASSWORD: costlane
+          POSTGRES_DB: costlane
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U costlane -d costlane"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    steps:
+      - name: derive the image name
+        run: |
+          owner_repo=$(echo "$GITHUB_REPOSITORY" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=ghcr.io/$owner_repo" >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # --platform is explicit rather than left to the runner's architecture,
+      # so this says which half of the manifest was tested.
+      - name: run the published image
+        run: |
+          docker run -d --name costlane --network host \
+            --platform linux/amd64 \
+            -e COSTLANE_DATABASE_URL="postgres://costlane:costlane@localhost:5432/costlane?sslmode=disable" \
+            -e COSTLANE_MASTER_KEY="smoke-test-master-key-not-a-real-credential" \
+            -e COSTLANE_MIGRATE_ON_BOOT=true \
+            "$IMAGE:${{ github.ref_name }}"
+
+      - name: wait for readiness
+        run: |
+          for _ in $(seq 60); do
+            if curl -fsS localhost:8080/readyz >/dev/null 2>&1; then
+              echo "ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "the published image never became ready"
+          docker logs costlane
+          exit 1
+
+      - name: the image reports the tag it was built from
+        run: |
+          curl -fsS localhost:8080/healthz | tee healthz.json
+          got=$(jq -r .version healthz.json)
+          want="${{ github.ref_name }}"
+          if [ "$got" != "$want" ]; then
+            echo "/healthz reports version '$got', want '$want'."
+            echo "The ldflags stamp did not reach the binary in the image."
+            exit 1
+          fi
+          echo "version $got"
+
+      - name: show the logs when something failed
+        if: failure()
+        run: docker logs costlane || true
+
+      - name: stop
+        if: always()
+        run: docker rm -f costlane || true
