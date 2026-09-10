@@ -1,7 +1,23 @@
 # Provider verification
 
-**Status: not yet run.** Awaiting funded credentials for OpenAI, Anthropic and
-Google. No release should be tagged before the table below is filled in.
+**Status at v0.1.0: partially run — one check on one provider.**
+
+| Check | OpenAI | Anthropic | Google |
+|---|---|---|---|
+| (a) non-streaming counts | not verified | not verified | see below |
+| (b) streaming counts | not verified | not verified | not applicable |
+| (c) cancellation stops billing | **not verified** | **not verified** | **not verifiable** |
+
+Read that table before reading anything else in this repository about
+cancellation. **No provider has been measured for check (c).** OpenAI and
+Anthropic had no funded credentials when v0.1.0 was tagged; Google has no
+streaming adapter in costlane, so there is no stream to cancel and the check
+cannot be run against it at all. The cancel default therefore rests on
+documented provider behaviour, not on a measurement taken here.
+
+An operator who needs certainty over cost rather than a documented default
+should set `disconnect_policy: drain` on the keys concerned, and pay for an
+exact figure.
 
 Everything else in this repository is tested against a fake provider. That
 proves the gateway does what it intends; it cannot prove that what it intends
@@ -76,26 +92,23 @@ output tokens charged. That confirmation is recorded by hand below.
 ## Results
 
 Run on: _pending_
-Gateway version: _pending_
+Gateway version: v0.1.0
 
 ### (a) Non-streaming counts
 
 | Provider | Model | Our count (in/out) | Reported (in/out) | Match | Provider request id |
 |----------|-------|--------------------|-------------------|-------|---------------------|
-| OpenAI | | | | | |
-| Anthropic | | | | | |
-| Google | | | | | |
+| OpenAI | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Anthropic | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Google | _pending_ | | | | |
 
 ### (b) Streaming counts
 
 | Provider | Model | Our count (in/out) | Reported (in/out) | Match | Provider request id |
 |----------|-------|--------------------|-------------------|-------|---------------------|
-| OpenAI | | | | | |
-| Anthropic | | | | | |
-| Google | | | | | |
-
-Google has no streaming adapter today; that row is expected to read
-"not applicable" rather than to pass.
+| OpenAI | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Anthropic | — | — | — | **not verified** | no funded credential at v0.1.0 |
+| Google | — | — | — | **not applicable** | costlane has no Gemini streaming adapter |
 
 ### (c) Billing stops on cancellation
 
@@ -103,15 +116,33 @@ Ceiling asked for in every row: `max_tokens: 4000`. Cancelled after one chunk.
 
 | Provider | Started (UTC) | Cancelled (UTC) | Stopped within | Provider request id | Chunks read | Dashboard: output tokens billed | Verdict |
 |----------|---------------|-----------------|----------------|---------------------|-------------|---------------------------------|---------|
-| OpenAI | | | | | | | |
-| Anthropic | | | | | | | |
-| Google | | | | | | | |
+| OpenAI | — | — | — | — | — | — | **not verified** |
+| Anthropic | — | — | — | — | — | — | **not verified** |
+| Google | — | — | — | — | — | — | **not verifiable** |
 
-Verdict is **stopped** when the billed output is near the chunks read, and
-**kept generating** when it is near 4000. Anything in between goes in the notes
-with the figure, not rounded to whichever verdict is more convenient.
+Verdict would be **stopped** when the billed output is near the chunks read,
+and **kept generating** when it is near 4000. Anything in between goes in the
+notes with the figure, not rounded to whichever verdict is more convenient.
 
-Dashboard checked by: _pending_ — on: _pending_
+None of those three states was reached. OpenAI and Anthropic were not run at
+all — no credential. Google **cannot** be run: check (c) needs a stream to
+cancel, and costlane's Gemini adapter completes rather than streams, so the
+test skips it rather than producing a result. Configuring only Google therefore
+yields no evidence about cancellation from any provider, which is why the
+summary at the top of this file says so in bold rather than in a footnote.
+
+### What this means for the release
+
+v0.1.0 ships with the cancel default **unmeasured**. That is a smaller claim
+than the one the design makes, and the README's known limitations say so, along
+with the remedy: `disconnect_policy: drain` on any key where an exact figure
+matters more than the tokens it costs to obtain.
+
+Closing this gap needs funded credentials on OpenAI and Anthropic, and a
+streaming adapter for Gemini. Neither is in v0.1.0.
+
+Dashboard checked by: not applicable — no cancellation run produced a request
+to look up.
 
 ### Notes
 

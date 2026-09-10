@@ -123,7 +123,9 @@ agree by construction.
 stop generating when the connection closes, and draining to learn an exact
 figure means paying for tokens nobody will read. Set a key's
 `disconnect_policy` to `drain` to buy exactness at that price
-([ADR 0001](docs/adr/0001-cancel-not-drain.md)).
+([ADR 0001](docs/adr/0001-cancel-not-drain.md)). This rests on documented
+provider behaviour that costlane has not yet measured — see the known
+limitations below before relying on it.
 
 **An exhausted budget is 402, never 429.** Retrying does not help; the body
 carries the limit, the spend, the outstanding reservations and when the window
@@ -157,10 +159,18 @@ version — because a dependency being down is not a reason to be restarted.
 
 Stated plainly, because finding them yourself would be worse.
 
-- **Live-provider behaviour is verified but narrowly.** The cancel policy and
-  the token counts are checked against real APIs in
-  [provider verification](docs/provider-verification.md); everything else is
-  tested against a fake provider.
+- **The cancel default is not measured on any provider.** costlane closes the
+  upstream connection when a client disconnects, on the documented behaviour
+  that providers stop generating and stop charging. That belief has not been
+  confirmed against a live API for OpenAI, Anthropic or Google: the first two
+  had no funded credentials at release, and the third has no streaming adapter
+  here, so there is no stream to cancel. **If you need certainty over cost
+  rather than a documented default, set `disconnect_policy: drain` on the keys
+  that route to them** and pay for an exact figure. What was checked, and what
+  was not, is recorded in
+  [provider verification](docs/provider-verification.md).
+- **Token counting is verified against a live API for Gemini only.** Everything
+  else is tested against a fake provider that reproduces each dialect.
 - **Vertex AI and Bedrock are not supported.** Google means the Gemini API with
   an API key. Vertex needs a different auth flow and a different URL shape, and
   neither is seeded or tested.
