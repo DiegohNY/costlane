@@ -1,20 +1,28 @@
 # Provider verification
 
-**Status at v0.1.0: partially run — one check on one provider.**
+**Status at v0.2.0: one check verified on one provider; two more are queued
+against a quota that resets on 2026-09-11 at 07:00 UTC.**
 
 | Check | OpenAI | Anthropic | Google |
 |---|---|---|---|
 | (a) non-streaming counts | not verified | not verified | **verified** |
-| (b) streaming counts | not verified | not verified | not run |
-| (c) cancellation stops billing | **not verified** | **not verified** | **not run** |
+| (b) streaming counts | not verified | not verified | **pending** |
+| (c) cancellation stops billing | **not verified** | **not verified** | **pending** |
 
 Read that table before reading anything else in this repository about
-cancellation. **No provider has been measured for check (c).** OpenAI and
-Anthropic had no funded credentials when v0.1.0 was tagged. Google could not be
-run at all then, for want of a streaming adapter; that adapter now exists, so
-checks (b) and (c) went from "not verifiable" to "not run" — the harness will
-exercise them the next time a credential is available. The cancel default still
-rests on documented provider behaviour rather than on a measurement taken here.
+cancellation. **No provider has been measured for check (c) yet.** OpenAI and
+Anthropic have no funded credential. Google could not be run at all before
+v0.2.0, for want of a streaming adapter; that adapter now exists, and the two
+remaining checks are queued rather than blocked.
+
+*Pending* means the harness is ready, the credential exists, and the run is
+waiting on the free tier's daily allowance —
+`GenerateRequestsPerDayPerProjectPerModel-FreeTier`, twenty requests per day
+per model, spent on 2026-09-10 capturing the streaming fixtures. It resets at
+midnight Pacific, which is **2026-09-11 07:00 UTC**.
+
+Until those rows are filled in, the cancel default rests on documented
+provider behaviour rather than on a measurement taken here.
 
 An operator who needs certainty over cost rather than a documented default
 should set `disconnect_policy: drain` on the keys concerned, and pay for an
@@ -125,7 +133,7 @@ raw payload rather than against anything costlane produced.
 |----------|-------|--------------------|-------------------|-------|---------------------|
 | OpenAI | — | — | — | **not verified** | no funded credential at v0.1.0 |
 | Anthropic | — | — | — | **not verified** | no funded credential at v0.1.0 |
-| Google | — | — | — | **not run** | the adapter exists as of v0.2; awaiting a credential |
+| Google | gemini-3.8-flash | | | **pending** — quota reset 2026-09-11 07:00 UTC | |
 
 ### (c) Billing stops on cancellation
 
@@ -135,16 +143,24 @@ Ceiling asked for in every row: `max_tokens: 4000`. Cancelled after one chunk.
 |----------|---------------|-----------------|----------------|---------------------|-------------|---------------------------------|---------|
 | OpenAI | — | — | — | — | — | — | **not verified** |
 | Anthropic | — | — | — | — | — | — | **not verified** |
-| Google | — | — | — | — | — | — | **not run** |
+| Google | | | | | | | **pending** — quota reset 2026-09-11 07:00 UTC |
 
 Verdict would be **stopped** when the billed output is near the chunks read,
 and **kept generating** when it is near 4000. Anything in between goes in the
 notes with the figure, not rounded to whichever verdict is more convenient.
 
-None of those three states was reached, for want of credentials rather than
-for want of a way to ask. Until v0.2 there was a second reason on the Google
+No verdict has been reached for any provider. For OpenAI and Anthropic the
+reason is a missing credential; for Google it is a daily quota already spent,
+and one day of waiting. Until v0.2.0 there was a third reason on the Google
 row — check (c) needs a stream to cancel and the Gemini adapter only completed
 — and that one is now gone.
+
+**How the Google run will go, so that a rushed one is recognisable as such.**
+Three requests, one per check. Retries on the 503s that model returns, spaced
+thirty seconds apart, twelve attempts in total across the whole run. If twelve
+are not enough the run stops and says so, rather than draining the day's
+allowance to zero a second time — an empty quota costs a day, and there is no
+figure worth that.
 
 Gemini has a property worth noting before the run happens: it restates its
 running totals on every chunk, so the last chunk read before a disconnect is

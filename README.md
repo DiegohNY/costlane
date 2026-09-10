@@ -92,10 +92,11 @@ same statement ([ADR 0003](docs/adr/0003-reserve-in-one-statement.md)).
 provider for its usage figures, reads them as the stream goes past, and strips
 the chunk again if the client never asked for it. Cost comes from the
 provider's own numbers, not from a tokeniser guessing at them. All three
-providers stream, each in its own dialect, and each dialect's translation is
-pinned by fixtures captured from the live API rather than written from its
-documentation — which, for Gemini, described two shapes the endpoint does not
-send.
+providers stream, each in its own dialect — Gemini since v0.2.0, which closes
+the one limitation v0.1.0's readers were told to expect. Each dialect's
+translation is pinned by fixtures captured from the live API rather than
+written from its documentation, which for Gemini described two shapes the
+endpoint does not send.
 
 **Prices are versioned, sourced and dated.** One row per token kind, per
 context tier, per validity window, each carrying the URL it was read from and

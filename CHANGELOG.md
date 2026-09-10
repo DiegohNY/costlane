@@ -23,6 +23,25 @@ touched; this tells you what changed for you.
   rather than `tokenizer`. A property of that one protocol, and only about
   what we can write down — not about whether Google stops charging.
 
+### Known limitations
+
+Two of v0.1.0's limitations survive this release, and one does not.
+
+- **Resolved: Gemini streams.** A streamed request to a Gemini model is
+  relayed and metered like any other, as of this release.
+- **Still open — the cancel default is not measured on any provider.**
+  costlane closes the upstream connection when a client disconnects, on
+  documented provider behaviour that has not been confirmed against a live
+  API. If you need certainty over cost rather than a documented default, set
+  `disconnect_policy: drain` on the keys concerned —
+  [#13](https://github.com/DiegohNY/costlane/issues/13).
+- **Still open — Vertex AI is not seeded and not supported.** Google means the
+  Gemini API with an API key. Vertex needs a different auth flow, a different
+  URL shape, and rates that have historically diverged from the Gemini API's;
+  an unverifiable rate does not enter the price table. Bedrock likewise.
+
+Everything else in v0.1.0's list stands unchanged.
+
 ### Fixed
 
 Four defects that were live in v0.1.0. **If you ran v0.1.0, the first two
@@ -105,6 +124,9 @@ Two of these are load-bearing enough to have issues of their own.
 - **Gemini is non-streaming only.** There is no Gemini streaming adapter, so a
   streamed request to a Gemini model is refused by name rather than buffered.
   First item of v0.2 — [#12](https://github.com/DiegohNY/costlane/issues/12).
+  *(Resolved in v0.2.0. Left standing here because this section records what
+  v0.1.0 shipped, and editing it would make the entry lie about the release it
+  describes.)*
 - **The cancel default is not measured on any provider.** costlane closes the
   upstream connection when a client disconnects, on documented provider
   behaviour that has not been confirmed against a live API: OpenAI and
