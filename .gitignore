@@ -8,6 +8,14 @@
 dist/
 bin/
 
+# Crash dumps. A bash on Windows writes one of these into the working
+# directory when the msys layer faults, and `git add -A` swept one into a
+# commit on 2026-09-11. It is noise in a repository and it is noise in a
+# diff.
+*.stackdump
+core
+core.*
+
 # Test and coverage
 *.test
 *.out
