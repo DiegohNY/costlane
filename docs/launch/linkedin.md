@@ -25,6 +25,8 @@ github.com/DiegohNY/costlane
 ## Notes for the poster
 
 - No hashtags, no "excited to announce", no emoji. The bug is the hook.
-- The last paragraph is the actual point; the product is the middle.
+- The NULL-versus-zero paragraph is the actual point; the product is the
+  middle, and the telemetry follow-up closes on the only outside evidence
+  the thing is right.
 - If someone asks what else it does, the README answers better than a
   comment will. Link, do not paste.

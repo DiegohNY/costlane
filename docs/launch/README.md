@@ -27,4 +27,10 @@ Three rules the drafts follow, so an edit does not undo them:
    only because it was caught before publication. A comparison that is
    wrong takes the whole post down with it.
 
+A fourth rule, learned by breaking the other three in the same edit: **when
+you change a draft, check every count it states about itself.** "Four
+paragraphs" in a header, "the last paragraph" in a note, "and four others"
+about the ADRs — all three went stale the moment the body grew, and all three
+read as confidently as when they were true. A count is a claim.
+
 The raw material for all three is [stories.md](../stories.md).

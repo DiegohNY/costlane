@@ -1,7 +1,8 @@
 # Show HN draft
 
-**Not published. For review.** Current as of v0.2.1. Four paragraphs: what it
-is, why in-path and how, the numbers, and what it does not do.
+**Not published. For review.** Current as of v0.2.1. Six paragraphs: what it
+is, why in-path and how, how the metering is checked, the numbers, what it
+does not do, and how the release pipeline is built.
 
 ---
 
@@ -33,7 +34,7 @@ https://github.com/DiegohNY/costlane
 
 ## Notes for the poster
 
-- The last paragraph is entirely limitations, on purpose, and it is the
+- The fifth paragraph is entirely limitations, on purpose, and it is the
   longest one. HN is unusually good at finding the thing you left out, and
   being the one to say it first is both honest and cheaper.
 - "Why not LiteLLM" will come up, and the honest answer is not a
