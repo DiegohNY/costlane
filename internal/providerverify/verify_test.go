@@ -54,6 +54,20 @@ type target struct {
 // p returns the adapter talking straight to the provider.
 func (t target) p() provider.Provider { return t.build(t.baseURL) }
 
+// only reports whether a check should run.
+//
+// COSTLANE_VERIFY_ONLY names one of a, b or c. It exists because the free
+// tier allows twenty requests per day per model and each check spends one:
+// re-running a check that already has a recorded result costs a request that
+// a retry might need later. Unset runs everything.
+func only(t *testing.T, check string) {
+	t.Helper()
+	want := os.Getenv("COSTLANE_VERIFY_ONLY")
+	if want != "" && want != check {
+		t.Skipf("COSTLANE_VERIFY_ONLY=%s, so check (%s) is not being run", want, check)
+	}
+}
+
 // targets builds the set of providers that have a credential in the
 // environment. A provider with no key is skipped rather than failed: the
 // point is to verify what can be paid for.
@@ -303,6 +317,7 @@ func reportedUsage(raw []byte) map[string]int64 {
 // Not approximately, and not by our own tokeniser: the invoice is computed
 // from the provider's figures, so the meter has to read the same ones.
 func TestNonStreamingCountsMatchTheProviderExactly(t *testing.T) {
+	only(t, "a")
 	for _, tgt := range targets(t) {
 		t.Run(tgt.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
@@ -362,6 +377,7 @@ func TestNonStreamingCountsMatchTheProviderExactly(t *testing.T) {
 // rather than in the body, and reading it correctly is what makes streaming
 // accounting exact rather than estimated.
 func TestStreamingCountsMatchTheProviderExactly(t *testing.T) {
+	only(t, "b")
 	for _, tgt := range targets(t) {
 		streamer, ok := tgt.p().(provider.Streamer)
 		if !ok {
@@ -415,9 +431,17 @@ func TestStreamingCountsMatchTheProviderExactly(t *testing.T) {
 					gotInput, gotOutput, tgt.name, want["input"], want["output"])
 			}
 
-			t.Logf("VERIFIED %s stream at %s: model=%s provider_request_id=%s counts=%v",
+			// Both sides printed, as check (a) does. An assertion that
+			// passed says the two agree; it does not put the provider's own
+			// figures in the record, and a verification document is worth
+			// what its evidence is worth.
+			t.Logf(`VERIFIED %s stream at %s: model=%q provider_request_id=%q
+  our counts:     %v
+  provider says:  input=%d output=%d
+  raw usage:      %s`,
 				tgt.name, time.Now().UTC().Format(time.RFC3339),
-				stream.ServedModel, stream.ProviderRequestID, counts)
+				stream.ServedModel, stream.ProviderRequestID, counts,
+				want["input"], want["output"], lastUsageFragment(raw.String()))
 		})
 	}
 }
@@ -459,6 +483,7 @@ const cancelMaxTokens = 4000
 // provider's usage dashboard and confirming the figure stopped where this log
 // line says it did.
 func TestCancellingMidStreamStopsTheUpstream(t *testing.T) {
+	only(t, "c")
 	for _, tgt := range targets(t) {
 		streamer, ok := tgt.p().(provider.Streamer)
 		if !ok {
@@ -496,6 +521,21 @@ func TestCancellingMidStreamStopsTheUpstream(t *testing.T) {
 			}
 			chunks := 1
 			delivered := len(frame.Data)
+			firstChunkAt := time.Now().UTC()
+
+			// What the provider had already counted when we left.
+			//
+			// This is the reference the dashboard figure is compared
+			// against, and without it the check reads its own result
+			// wrongly. The first run assumed a cancel after one chunk meant
+			// roughly one output token billed. On a model that thinks, the
+			// first chunk arrives only once the thinking is done — thirty-
+			// seven seconds in, on the run that made this obvious — so
+			// several hundred tokens can already be on the meter before the
+			// cancel is even possible. A dashboard figure of three hundred
+			// is then neither the "stopped" case nor the "kept generating"
+			// case until you know what had already been produced.
+			firstChunkUsage := usageFragment(frame.Data)
 
 			// Two clocks on purpose: the UTC stamp is what a dashboard
 			// filters on, and time.Now().UTC() drops the monotonic reading
@@ -525,22 +565,34 @@ func TestCancellingMidStreamStopsTheUpstream(t *testing.T) {
 			// timestamps are UTC because that is what every provider dashboard
 			// filters on.
 			t.Logf(`CHECK THE DASHBOARD — %s
-  started (UTC):          %s
-  cancelled (UTC):        %s
-  upstream stopped within %s of the cancel
-  provider request id:    %s
+  started (UTC):            %s
+  first chunk (UTC):        %s   (%s after the start)
+  cancelled (UTC):          %s
+  upstream stopped within   %s of the cancel
+  provider request id:      %s
   chunks read before cancel: %d (%d bytes of frame payload)
-  max_tokens the request allowed: %d
-  Expect the day's billed output for this request to sit near the chunk count,
-  not near %d. Near %d means this provider kept generating after the
-  connection closed, and the cancel default is wrong for it.`,
+  max_tokens allowed:       %d
+  ALREADY COUNTED at the moment of the cancel, by the provider's own
+  figures on the last chunk we read:
+      %s
+
+  Read the dashboard as a difference, not as an absolute: total after this
+  run minus the total you noted before it. Compare that difference with the
+  figures above. Close to them means generation stopped at the disconnect.
+  Close to %d means it did not, and the cancel default is wrong for this
+  provider. Anything else is neither, and goes in the notes as the number it
+  is.`,
 				tgt.name,
 				started.Format(time.RFC3339),
+				firstChunkAt.Format(time.RFC3339),
+				firstChunkAt.Sub(started).Round(time.Second),
 				cancelledAt.Format(time.RFC3339),
 				stoppedWithin.Round(time.Millisecond),
 				stream.ProviderRequestID,
 				chunks, delivered,
-				cancelMaxTokens, cancelMaxTokens, cancelMaxTokens)
+				cancelMaxTokens,
+				firstChunkUsage,
+				cancelMaxTokens)
 		})
 	}
 }
@@ -571,4 +623,21 @@ func usageFragment(raw []byte) string {
 		}
 	}
 	return "(no usage object)"
+}
+
+// lastUsageFragment returns the usage object of the last SSE frame that
+// carried one, so the streaming record shows the provider's own figures
+// rather than only our reading of them.
+func lastUsageFragment(sse string) string {
+	last := "(none)"
+	for _, line := range strings.Split(sse, "\n") {
+		data, ok := strings.CutPrefix(strings.TrimSpace(line), "data: ")
+		if !ok || data == "[DONE]" {
+			continue
+		}
+		if reportedUsage([]byte(data)) != nil {
+			last = usageFragment([]byte(data))
+		}
+	}
+	return last
 }
