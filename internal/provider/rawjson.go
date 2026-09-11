@@ -63,3 +63,27 @@ func FieldNames(body []byte) ([]string, error) {
 	}
 	return names, nil
 }
+
+// WithRoutedModel replaces the body's model with the one routing resolved,
+// and only when the two differ.
+//
+// A "provider/model" prefix is the caller's way of disambiguating a model two
+// providers both serve. Routing strips it and passes the bare name in
+// Request.Model; the body still carries the prefixed one, and a provider
+// asked for "anthropic/claude-sonnet-5" has never heard of it. Rewriting only
+// on a difference keeps the byte-for-byte promise for every request that did
+// not use a prefix.
+func WithRoutedModel(body []byte, model string) ([]byte, error) {
+	if model == "" {
+		return body, nil
+	}
+	raw, ok := Field(body, "model")
+	if !ok {
+		return body, nil
+	}
+	var current string
+	if err := json.Unmarshal(raw, &current); err == nil && current == model {
+		return body, nil
+	}
+	return SetField(body, "model", model)
+}
