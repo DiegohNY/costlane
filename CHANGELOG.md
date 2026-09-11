@@ -3,7 +3,7 @@
 Written by hand. A list generated from commit subjects tells you what was
 touched; this tells you what changed for you.
 
-## v0.2.0 — unreleased
+## v0.2.0 — 2026-09-11
 
 ### Added
 
