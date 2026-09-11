@@ -1,0 +1,19 @@
+# One line ending everywhere in the repository.
+#
+# Without this, a Windows checkout rewrites tracked files to CRLF, and
+# golangci-lint then reports every one of them as unformatted — including
+# files the current change never touched. The noise is indistinguishable from
+# a real finding, which is the part that costs time.
+* text=auto
+
+*.go    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+*.md    text eol=lf
+*.sql   text eol=lf
+*.sh    text eol=lf
+*.json  text eol=lf
+
+# Fixtures are compared byte for byte, so their bytes are not the tooling's
+# to normalise.
+*.sse -text

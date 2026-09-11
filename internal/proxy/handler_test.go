@@ -700,3 +700,30 @@ func TestReasoningEffortEndToEnd(t *testing.T) {
 		}
 	})
 }
+
+// The "provider/model" prefix, through the whole gateway.
+//
+// Routing resolves the prefix and the adapter must ask the provider for the
+// resolved name. Two adapters read the model from the body instead, where the
+// prefix is still attached, so the disambiguation feature produced a request
+// no provider could serve.
+func TestPrefixedModelRoutesAndReachesTheProvider(t *testing.T) {
+	for _, c := range []struct{ name, model string }{
+		{"openai", "openai/gpt-6-astra"},
+		{"anthropic", "anthropic/claude-sonnet-5"},
+		{"google", "google/gemini-3.8-flash"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newHarness(t, "100")
+
+			rec := h.post(t, `{"model":"`+c.model+`","messages":[{"role":"user","content":"hi"}]}`,
+				map[string]string{
+					fakeprovider.HeaderPromptTokens:     "10",
+					fakeprovider.HeaderCompletionTokens: "5",
+				})
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+			}
+		})
+	}
+}

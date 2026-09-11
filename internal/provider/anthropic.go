@@ -42,7 +42,11 @@ var anthropicUnsupported = []string{
 
 // Complete translates, forwards, and translates back.
 func (p *Anthropic) Complete(ctx context.Context, req Request) (*Response, error) {
-	translated, injected, err := TranslateAnthropicRequest(req.Body, p.opts.DefaultMaxTokens)
+	routed, err := WithRoutedModel(req.Body, req.Model)
+	if err != nil {
+		return nil, err
+	}
+	translated, injected, err := TranslateAnthropicRequest(routed, p.opts.DefaultMaxTokens)
 	if err != nil {
 		return nil, err
 	}
@@ -393,7 +397,11 @@ func anyOrNil(s string) any {
 // arrives first and the output count last, and tool arguments stream as
 // partial JSON under a content-block index that has to be remapped.
 func (p *Anthropic) Stream(ctx context.Context, req Request) (*Stream, error) {
-	translated, injected, err := TranslateAnthropicRequest(req.Body, p.opts.DefaultMaxTokens)
+	routed, err := WithRoutedModel(req.Body, req.Model)
+	if err != nil {
+		return nil, err
+	}
+	translated, injected, err := TranslateAnthropicRequest(routed, p.opts.DefaultMaxTokens)
 	if err != nil {
 		return nil, err
 	}

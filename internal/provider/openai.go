@@ -28,7 +28,10 @@ func (p *OpenAI) Name() string { return "openai" }
 
 // Complete forwards a request and reads back the usage.
 func (p *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
-	body := req.Body
+	body, err := WithRoutedModel(req.Body, req.Model)
+	if err != nil {
+		return nil, err
+	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		p.opts.BaseURL+"/v1/chat/completions", bytes.NewReader(body))
@@ -106,7 +109,11 @@ func (p *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
 // settle, and the chunk is stripped again on the way out if the client did
 // not want it.
 func (p *OpenAI) Stream(ctx context.Context, req Request) (*Stream, error) {
-	body, clientAskedForUsage, err := ensureIncludeUsage(req.Body)
+	routed, err := WithRoutedModel(req.Body, req.Model)
+	if err != nil {
+		return nil, err
+	}
+	body, clientAskedForUsage, err := ensureIncludeUsage(routed)
 	if err != nil {
 		return nil, err
 	}

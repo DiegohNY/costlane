@@ -24,6 +24,22 @@ touched; this tells you what changed for you.
   the shape the price table uses
   ([ADR 0009](docs/adr/0009-sourced-reasoning-levels-or-refusal.md)).
 
+### Fixed
+
+- **A `provider/model` prefix reached OpenAI and Anthropic with the prefix
+  still attached.** Routing resolves `anthropic/claude-sonnet-5` to the
+  `anthropic` provider and the bare model name, and passes that name to the
+  adapter — but the OpenAI adapter forwarded the client's body untouched, and
+  the Anthropic adapter read the model out of that body, so both asked their
+  provider for a model called `anthropic/claude-sonnet-5`. The upstream
+  answered 404, and the prefix — which exists to disambiguate a model two
+  providers both serve — never worked on two of the three.
+
+  Gemini was unaffected: it carries the model in the URL, built from the
+  routed name. The body is now rewritten only when the routed name differs
+  from the one sent, so an unprefixed OpenAI request still reaches its
+  provider byte for byte.
+
 ### Changed
 
 - **An unmappable reasoning level is a 400, not a quiet default.**
