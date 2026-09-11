@@ -28,7 +28,7 @@ To check the concurrency tests actually tested something, I ran each against del
 
 The one I would actually recommend copying, though, is smaller. The release workflow pushes the version tag, boots *that digest* against a real Postgres, and only re-points `:latest` once it answers. Its first run failed for an unrelated reason — I had forgotten a required env var in the job — and the text of its own failure showed that the provider I had just spent a release adding was never registered in the router, so every request to it had been answering 404 for two releases. Six kinds of test had missed it, because nothing crossed that seam: `buildRouter` is reached only from `main`, and the one end-to-end test through it used a different provider. `:latest` never moved. Running the real artifact the real way catches things you did not think to assert.
 
-Design decisions that reversed an earlier one are written up as ADRs — cancel vs drain, the fused reserve, the explicit isolation level, and four others: https://github.com/DiegohNY/costlane/tree/main/docs/adr
+Design decisions that reversed an earlier one are written up as ADRs — cancel vs drain, the fused reserve, the explicit isolation level, and five others: https://github.com/DiegohNY/costlane/tree/main/docs/adr
 
 Repo: https://github.com/DiegohNY/costlane — `docker compose up` runs the whole thing against a fake provider with no API keys.
 
