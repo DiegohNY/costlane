@@ -35,12 +35,19 @@ Two of v0.1.0's limitations survive this release, and one does not.
 
 - **Resolved: Gemini streams.** A streamed request to a Gemini model is
   relayed and metered like any other, as of this release.
-- **Still open — the cancel default is not measured on any provider.**
-  costlane closes the upstream connection when a client disconnects, on
-  documented provider behaviour that has not been confirmed against a live
-  API. If you need certainty over cost rather than a documented default, set
-  `disconnect_policy: drain` on the keys concerned —
+- **Partly closed — the cancel default is now measured on Gemini.** A request
+  cancelled after one chunk recorded zero output tokens in Google's own
+  telemetry, which is consistent with generation stopping at the disconnect.
+  It is recorded as indicative rather than conclusive, and the reasoning is in
+  [provider verification](docs/provider-verification.md). OpenAI and Anthropic
+  remain unmeasured for want of a credential; set `disconnect_policy: drain`
+  on keys routed there if you need certainty —
   [#13](https://github.com/DiegohNY/costlane/issues/13).
+- **Still open — costlane cannot ask Gemini to stop thinking.** No path from
+  the OpenAI dialect to `thinkingConfig`, so a caller pays for a thinking
+  budget they cannot set. Google bills thinking as output: a one-word answer
+  measured 173 output tokens, 172 of them thought
+  ([#24](https://github.com/DiegohNY/costlane/issues/24)).
 - **Still open — Vertex AI is not seeded and not supported.** Google means the
   Gemini API with an API key. Vertex needs a different auth flow, a different
   URL shape, and rates that have historically diverged from the Gemini API's;
