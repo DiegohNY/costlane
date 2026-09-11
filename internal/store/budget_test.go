@@ -545,3 +545,94 @@ func today() time.Time {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 }
+
+// The settle already updates the budget row; the figure the response header
+// needs is in that row at that moment. Returning it costs nothing and saves
+// a SELECT that read what the statement one line earlier had just written.
+func TestSettleReturnsTheRemainingBudget(t *testing.T) {
+	db := newTestDB(t)
+	_, hash := budgetedKey(t, db, "10")
+
+	res, err := db.Reserve(t.Context(), store.ReserveInput{
+		KeyHash: hash, Model: "m", EstimatedUSD: usd("2"), TTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+
+	out, err := db.Settle(t.Context(), store.SettleInput{
+		ReservationID: res.ReservationID, ActualUSD: usd("3"),
+	})
+	if err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	if out.RemainingUSD == nil {
+		t.Fatal("a budgeted key settled with no remaining figure")
+	}
+	// 10 limit, 3 spent, nothing still reserved.
+	if !out.RemainingUSD.Equal(usd("7")) {
+		t.Errorf("RemainingUSD = %s, want 7", out.RemainingUSD)
+	}
+	assertReconciled(t, db)
+}
+
+// An unlimited key has no remaining figure, and a nil is the only honest
+// answer: zero would read as exhausted.
+func TestSettleReturnsNoRemainingForAnUnlimitedKey(t *testing.T) {
+	db := newTestDB(t)
+	_, hash := budgetedKey(t, db, "")
+
+	res, err := db.Reserve(t.Context(), store.ReserveInput{
+		KeyHash: hash, Model: "m", EstimatedUSD: usd("2"), TTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+
+	out, err := db.Settle(t.Context(), store.SettleInput{
+		ReservationID: res.ReservationID, ActualUSD: usd("3"),
+	})
+	if err != nil {
+		t.Fatalf("Settle: %v", err)
+	}
+	if out.RemainingUSD != nil {
+		t.Errorf("RemainingUSD = %s for a key with no limit, want nil", out.RemainingUSD)
+	}
+}
+
+// A settle that applied nothing has no figure to report. It did not write the
+// budget row, so it cannot speak for it: a second settle arriving after the
+// first, or after the reaper, must return nil rather than a number it read
+// from someone else's work.
+func TestSettleThatAppliedNothingReportsNoRemaining(t *testing.T) {
+	db := newTestDB(t)
+	_, hash := budgetedKey(t, db, "10")
+
+	res, err := db.Reserve(t.Context(), store.ReserveInput{
+		KeyHash: hash, Model: "m", EstimatedUSD: usd("2"), TTL: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("Reserve: %v", err)
+	}
+
+	if _, err := db.Settle(t.Context(), store.SettleInput{
+		ReservationID: res.ReservationID, ActualUSD: usd("3"),
+	}); err != nil {
+		t.Fatalf("first Settle: %v", err)
+	}
+
+	second, err := db.Settle(t.Context(), store.SettleInput{
+		ReservationID: res.ReservationID, ActualUSD: usd("3"),
+	})
+	if err != nil {
+		t.Fatalf("second Settle: %v", err)
+	}
+	if second.Applied {
+		t.Fatal("the second settle applied, which would count the spend twice")
+	}
+	if second.RemainingUSD != nil {
+		t.Errorf("RemainingUSD = %s from a settle that changed nothing, want nil",
+			second.RemainingUSD)
+	}
+	assertReconciled(t, db)
+}

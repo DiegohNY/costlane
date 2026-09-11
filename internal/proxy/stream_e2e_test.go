@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DiegohNY/costlane/internal/fakeprovider"
+	"github.com/DiegohNY/costlane/internal/proxy"
 	"github.com/shopspring/decimal"
 )
 
@@ -606,4 +607,36 @@ func TestGeminiStreamEndToEnd(t *testing.T) {
 	}
 
 	assertReconciled(t, h.db)
+}
+
+// A streamed response carries no budget figure, and that is a decision rather
+// than an oversight.
+//
+// Headers leave before the first chunk; the cost is known only once the
+// stream has ended. Sending a remaining-budget figure from before the request
+// was settled would be a number that was already stale when it was written.
+// The read API answers this question properly, after the fact.
+func TestStreamedResponseCarriesNoBudgetHeaders(t *testing.T) {
+	h := newHarness(t, "100")
+	srv := h.serve(t)
+
+	req := h.streamRequest(t, srv,
+		`{"model":"gpt-6-astra","messages":[{"role":"user","content":"hi"}],"stream":true}`,
+		map[string]string{
+			fakeprovider.HeaderPromptTokens:     "10",
+			fakeprovider.HeaderCompletionTokens: "5",
+		})
+	resp := h.send(t, srv, req)
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	for _, header := range []string{proxy.HeaderBudgetRemaining, proxy.HeaderCostUSD} {
+		if got := resp.Header.Get(header); got != "" {
+			t.Errorf("%s = %q on a streamed response; the figure is not known "+
+				"when the headers go out", header, got)
+		}
+	}
+	readStream(t, resp)
 }

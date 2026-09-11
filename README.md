@@ -252,10 +252,14 @@ authentication, pricing, the reserve, the settle and the accounting.
 | **Overhead** | **+1.96 ms** | **+2.21 ms** |
 
 Nearly all of that is Postgres. The gateway does no meaningful computation on
-this path; it does a reserve (0.47 ms contended, below), a settle (0.62 ms), a
-budget read for the response header, and — in this harness only — a synchronous
-usage insert. Production hands that last one to a bounded buffer, so the
-figures above are an upper bound.
+this path; it does a reserve (0.47 ms contended, below), a settle (0.62 ms),
+and — in this harness only — a synchronous usage insert. Production hands that
+last one to a bounded buffer, so the figures above are an upper bound.
+
+The figures were measured while the happy path still read the remaining budget
+back with a `SELECT` after the settle; that read is gone, and the settle
+returns the figure instead. They are therefore an upper bound in one more way
+until the benchmarks are re-run.
 
 If two milliseconds against a provider call that takes hundreds is not a trade
 you want, the honest answer is that this product is not for you: the cost is
@@ -312,7 +316,8 @@ and fails if anything is added in front of the reserve. What it observes today:
 happy path:   UPDATE key_budgets → INSERT INTO budget_reservations   (the reserve)
               ─── provider call ───
               UPDATE budget_reservations → UPDATE key_budgets        (the settle)
-              SELECT ...                                             (remaining budget)
+              (no SELECT: the settle's second UPDATE returns the
+               remaining budget the response header needs)
 
 refusal:      UPDATE key_budgets → SELECT vk.revoked_at, ...
               (the refusal is the reserve matching no rows; the second query

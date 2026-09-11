@@ -209,6 +209,13 @@ type SettleOutput struct {
 	SettledAfterExpiry bool
 	EstimatedUSD       decimal.Decimal
 	WindowStart        time.Time
+
+	// RemainingUSD is what the key may still spend this window, as the
+	// settle's own UPDATE left it. It is nil for a key with no limit, and
+	// nil when Applied is false: a settle that wrote nothing has no figure
+	// of its own to report, and reading one from another transaction's
+	// work would be a different statement pretending to be this one.
+	RemainingUSD *decimal.Decimal
 }
 
 // Settle closes a reservation and moves its amount from reserved to spent.
@@ -274,13 +281,28 @@ func (db *DB) Settle(ctx context.Context, in SettleInput) (SettleOutput, error) 
 	// released it. Subtracting twice would drive reserved_usd negative,
 	// which the CHECK constraint would catch — but catching it here means
 	// never writing it.
-	if _, err := tx.Exec(settleCtx, `
+	//
+	// It also returns what the row now holds, because the response header
+	// wants exactly that figure and this statement is the one that produced
+	// it. Reading it back afterwards was a second round trip on the happy
+	// path for a value already in hand.
+	var remaining *string
+	if err := tx.QueryRow(settleCtx, `
 		UPDATE key_budgets
 		   SET reserved_usd = reserved_usd - CASE WHEN $2 THEN 0 ELSE $3::numeric END,
 		       spent_usd = spent_usd + CASE WHEN window_start = $4 THEN $5::numeric ELSE 0 END
-		 WHERE key_id = $1`,
-		keyID, out.SettledAfterExpiry, estimated, out.WindowStart, in.ActualUSD.String()); err != nil {
+		 WHERE key_id = $1
+		RETURNING CASE
+		            WHEN limit_usd IS NULL THEN NULL
+		            ELSE (limit_usd - spent_usd - reserved_usd)::text
+		          END`,
+		keyID, out.SettledAfterExpiry, estimated, out.WindowStart, in.ActualUSD.String()).
+		Scan(&remaining); err != nil {
 		return SettleOutput{}, fmt.Errorf("store: applying settle to budget: %w", err)
+	}
+	if remaining != nil {
+		d := mustDecimal(*remaining)
+		out.RemainingUSD = &d
 	}
 
 	if err := tx.Commit(settleCtx); err != nil {
@@ -436,30 +458,6 @@ func mustDecimal(s string) decimal.Decimal {
 func nextWindowStart() time.Time {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC).AddDate(0, 1, 0)
-}
-
-// RemainingBudget reports how much a key may still spend this window, or nil
-// when the key is unlimited.
-//
-// It exists to fill a response header, so it reads from the replica pool and
-// a failure is not worth reporting: a missing header is a small loss next to
-// a failed request.
-func (db *DB) RemainingBudget(ctx context.Context, keyID uuid.UUID) (*decimal.Decimal, error) {
-	var remaining *string
-	err := db.read.QueryRow(ctx, `
-		SELECT CASE
-		         WHEN limit_usd IS NULL THEN NULL
-		         ELSE (limit_usd - spent_usd - reserved_usd)::text
-		       END
-		  FROM key_budgets WHERE key_id = $1`, keyID).Scan(&remaining)
-	if err != nil {
-		return nil, err
-	}
-	if remaining == nil {
-		return nil, nil
-	}
-	d := mustDecimal(*remaining)
-	return &d, nil
 }
 
 // KeyHasBudget reports whether a key carries a spending limit.
