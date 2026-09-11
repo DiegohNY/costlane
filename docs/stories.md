@@ -1,6 +1,6 @@
 # Stories
 
-Internal notes. Six bugs and one confirmation: what found each, and what
+Internal notes. Seven bugs and one confirmation: what found each, and what
 changed afterwards. Written while the details were fresh, because in a month
 reconstructing them from diffs would take a day.
 
@@ -229,9 +229,73 @@ thought to look.
 
 ---
 
+## 8. The gate that caught the wrong bug
+
+**The best one here, because the mechanism worked on something it was not
+built for.**
+
+The day before releasing v0.2.0, the release workflow pushed `:v0.2.0` and
+`:latest` in the same step, and ran its smoke test afterwards. The hole was
+obvious once named: a release that failed its own boot check would already be
+what `docker pull` handed you. So the order was changed — push the version
+tag, smoke-test **that digest**, and only then re-point `:latest` at the
+manifest that passed.
+
+The expected failure it guarded against was a broken build. What happened
+instead was three steps deep.
+
+**One: the smoke test failed.** Not because the image was broken, but because
+the job passed no provider credential and the gateway refuses to start without
+one. My mistake, in the check rather than the artifact. `promote` was skipped
+and `:latest` stayed on v0.1.0.
+
+**Two: the failure message was the real finding.**
+
+```
+costlane: no provider credentials configured: set at least one of
+COSTLANE_OPENAI_API_KEY or COSTLANE_ANTHROPIC_API_KEY
+```
+
+Two providers named, not three. Following that into `buildRouter` showed why:
+it registered OpenAI and Anthropic and **never constructed a Google provider**.
+Meanwhile the price seed mapped every Gemini model to a provider named
+`google` that was not in the router's map, so `Route` returned `ErrNoProvider`
+and every Gemini request answered 404.
+
+Gemini had never worked from the binary. Not in v0.1.0, and not in v0.2.0 —
+whose headline feature was a Gemini streaming adapter, fully built, fully
+tested, and unreachable from the program that shipped it.
+
+**Three: nothing had crossed that seam.** The adapters, the streaming tests
+and the live provider verification all construct a provider directly.
+`buildRouter` is reached only from `cmd/costlane`, and the one end-to-end test
+that went through it asked for an OpenAI model. Three tests now cover the seam
+itself, and two boot-time checks would each have caught it without calling any
+provider: `/v1/models` lists only models whose provider was actually
+registered, so a provider missing from the wiring is a provider missing from
+that list — asserted in the release smoke test and again in the compose
+quickstart, which then streams a real Gemini request through the whole binary.
+
+**Why this one is worth the space.** The gate was built to stop a broken image
+from becoming `:latest`. It never saw a broken image. What it actually did was
+fail for an unrelated reason, and the *text of its own failure* exposed a
+defect that had survived two releases, a full verification campaign against a
+live API, and a test suite that exercised the Gemini adapter in six different
+ways.
+
+A check that only catches what it was designed for is worth what you predicted
+when you wrote it. A check that runs the real artifact, the real way, tends to
+be worth more — because it fails on things nobody thought to predict, and a
+failure is a sentence you have to read.
+
+The consolation prize: `:latest` pointed at v0.1.0 the entire time, which
+happened to be the last release where the thing it advertised was not broken.
+
+---
+
 ## What this adds up to
 
-Six bugs and one confirmation, six mechanisms:
+Seven bugs and one confirmation, seven mechanisms:
 
 | Finding | What caught it |
 |-----|----------------|
@@ -242,11 +306,18 @@ Six bugs and one confirmation, six mechanisms:
 | Out-of-format canary | An integration test that greps every seam |
 | Cancelled context lost records | Reasoning about lifetimes, then a test |
 | *(nothing — the meter was right)* | A third source that computed the number itself |
+| Gemini unreachable from the binary | A release gate failing for an unrelated reason |
 
 Not one of them was found by review. Two were found by a build step that had
 nothing to do with the bug. Three were found because a test existed before the
 code did.
 
-And the one entry that is not a bug is the most useful of the seven: the only
+And the one entry that is not a bug is the most useful of the eight: the only
 evidence that the meter is correct came from a system that had no idea we
 existed.
+
+The last two are a pair, and they say the same thing from opposite
+directions. A system that computed our number for its own reasons confirmed
+the meter. A gate that ran our artifact for its own reasons found a defect
+six kinds of test had missed. Neither was looking for what it found — which
+is precisely why it found it.
