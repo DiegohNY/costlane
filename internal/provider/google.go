@@ -30,11 +30,18 @@ func (p *Google) Name() string { return "google" }
 var googleUnsupported = []string{
 	"logprobs", "top_logprobs", "n", "presence_penalty", "frequency_penalty",
 	"logit_bias", "seed", "modalities", "audio",
+	// Gemini's own thinking fields, in both the REST spelling and the
+	// SDK one. A caller who knows the native dialect might send them
+	// directly; costlane translates reasoning_effort instead, and a
+	// second way of saying the same thing would be a second answer to
+	// the question of how much thinking was asked for.
+	"thinkingConfig", "thinkingLevel", "thinking_level",
+	"thinkingBudget", "thinking_budget",
 }
 
 // Complete translates, forwards, and translates back.
 func (p *Google) Complete(ctx context.Context, req Request) (*Response, error) {
-	translated, err := TranslateGoogleRequest(req.Body)
+	translated, err := TranslateGoogleRequest(req.Body, req.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +113,7 @@ func (p *Google) Complete(ctx context.Context, req Request) (*Response, error) {
 // is injected into the request: unlike OpenAI, Gemini needs no asking to
 // report usage, and unlike Anthropic it needs no max_tokens.
 func (p *Google) Stream(ctx context.Context, req Request) (*Stream, error) {
-	translated, err := TranslateGoogleRequest(req.Body)
+	translated, err := TranslateGoogleRequest(req.Body, req.Model)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +183,11 @@ func (p *Google) Stream(ctx context.Context, req Request) (*Stream, error) {
 }
 
 // TranslateGoogleRequest converts a chat completion into generateContent.
-func TranslateGoogleRequest(body []byte) ([]byte, error) {
+//
+// The model is passed separately rather than read from the body: routing
+// resolves a "provider/model" prefix before the request reaches here, so the
+// name that decides which thinking table applies is the routed one.
+func TranslateGoogleRequest(body []byte, model string) ([]byte, error) {
 	names, err := FieldNames(body)
 	if err != nil {
 		return nil, err
@@ -194,10 +205,11 @@ func TranslateGoogleRequest(body []byte) ([]byte, error) {
 			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"messages"`
-		MaxTokens   *int            `json:"max_tokens"`
-		Temperature *float64        `json:"temperature"`
-		TopP        *float64        `json:"top_p"`
-		Stop        json.RawMessage `json:"stop"`
+		MaxTokens       *int            `json:"max_tokens"`
+		Temperature     *float64        `json:"temperature"`
+		TopP            *float64        `json:"top_p"`
+		Stop            json.RawMessage `json:"stop"`
+		ReasoningEffort *string         `json:"reasoning_effort"`
 	}
 	if err := json.Unmarshal(body, &incoming); err != nil {
 		return nil, fmt.Errorf("provider: parsing request: %w", err)
@@ -242,6 +254,22 @@ func TranslateGoogleRequest(body []byte) ([]byte, error) {
 	}
 	if len(incoming.Stop) > 0 {
 		generation["stopSequences"] = stopSequences(incoming.Stop)
+	}
+	// A request that says nothing about thinking is left alone, so the
+	// model applies its own documented default. One that does say
+	// something is either mapped from the seeded table or refused: there
+	// is no third option where the request goes upstream anyway and the
+	// caller is billed for thinking they asked to limit.
+	if incoming.ReasoningEffort != nil {
+		level, ok := GoogleThinkingLevel(model, *incoming.ReasoningEffort)
+		if !ok {
+			return nil, &ErrUnsupportedParameter{
+				Parameter: "reasoning_effort",
+				Provider:  "google",
+				Detail:    thinkingRefusal("google", model, *incoming.ReasoningEffort),
+			}
+		}
+		generation["thinkingConfig"] = map[string]any{"thinkingLevel": level}
 	}
 	if len(generation) > 0 {
 		out["generationConfig"] = generation

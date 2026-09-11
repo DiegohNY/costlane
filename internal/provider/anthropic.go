@@ -137,6 +137,9 @@ func TranslateAnthropicRequest(body []byte, defaultMaxTokens int) ([]byte, int, 
 		Stream      bool              `json:"stream"`
 		Tools       json.RawMessage   `json:"tools"`
 		ToolChoice  json.RawMessage   `json:"tool_choice"`
+		// Anthropic publishes an effort enum of its own, so this field
+		// has a real destination here rather than being refused.
+		ReasoningEffort *string `json:"reasoning_effort"`
 	}
 	if err := json.Unmarshal(body, &incoming); err != nil {
 		return nil, 0, fmt.Errorf("provider: parsing request: %w", err)
@@ -187,6 +190,21 @@ func TranslateAnthropicRequest(body []byte, defaultMaxTokens int) ([]byte, int, 
 	}
 	if len(incoming.Stop) > 0 {
 		out["stop_sequences"] = stopSequences(incoming.Stop)
+	}
+	// A request that says nothing about effort is left alone: the API
+	// default is high, and choosing a level on the caller's behalf would
+	// change what they are billed without telling them. One that does say
+	// something is either mapped from the seeded table or refused.
+	if incoming.ReasoningEffort != nil {
+		effort, ok := AnthropicEffort(incoming.Model, *incoming.ReasoningEffort)
+		if !ok {
+			return nil, 0, &ErrUnsupportedParameter{
+				Parameter: "reasoning_effort",
+				Provider:  "anthropic",
+				Detail:    thinkingRefusal("anthropic", incoming.Model, *incoming.ReasoningEffort),
+			}
+		}
+		out["output_config"] = map[string]any{"effort": effort}
 	}
 	if incoming.Stream {
 		out["stream"] = true

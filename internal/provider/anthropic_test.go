@@ -235,3 +235,80 @@ func assertJSONEqual(t *testing.T, got, want []byte) {
 		t.Errorf("translation mismatch\n--- got ---\n%s\n--- want ---\n%s", gj, wj)
 	}
 }
+
+// Anthropic has a documented equivalent, so reasoning_effort is mapped
+// rather than refused: output_config.effort takes the same three level names
+// on every model costlane prices. The refusals below are the levels Anthropic
+// does not publish, which stay refusals.
+func TestAnthropicMapsReasoningEffort(t *testing.T) {
+	for _, c := range []struct{ model, effort, want string }{
+		{"claude-sonnet-5", "low", "low"},
+		{"claude-sonnet-5", "medium", "medium"},
+		{"claude-opus-5", "high", "high"},
+		{"claude-fable-5-1", "medium", "medium"},
+	} {
+		t.Run(c.model+"/"+c.effort, func(t *testing.T) {
+			body := []byte(`{"model":"` + c.model + `","messages":[],"max_tokens":10,` +
+				`"reasoning_effort":"` + c.effort + `"}`)
+
+			got, _, err := provider.TranslateAnthropicRequest(body, 4096)
+			if err != nil {
+				t.Fatalf("translating: %v", err)
+			}
+
+			var sent struct {
+				OutputConfig struct {
+					Effort string `json:"effort"`
+				} `json:"output_config"`
+			}
+			if err := json.Unmarshal(got, &sent); err != nil {
+				t.Fatalf("decoding: %v", err)
+			}
+			if sent.OutputConfig.Effort != c.want {
+				t.Errorf("output_config.effort = %q, want %q\n%s",
+					sent.OutputConfig.Effort, c.want, got)
+			}
+		})
+	}
+}
+
+// Absent means absent: the API default is high, and costlane does not decide
+// on the caller's behalf which level they meant.
+func TestAnthropicAbsentReasoningEffortSendsNoOutputConfig(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[],"max_tokens":10}`)
+
+	got, _, err := provider.TranslateAnthropicRequest(body, 4096)
+	if err != nil {
+		t.Fatalf("translating: %v", err)
+	}
+	if strings.Contains(string(got), "output_config") {
+		t.Errorf("a request with no reasoning_effort grew an output_config:\n%s", got)
+	}
+}
+
+// Fail closed, the same way Gemini does: a level Anthropic does not publish
+// is refused by name rather than rounded to the nearest one we do have.
+func TestAnthropicRefusesUnmappableReasoningEffort(t *testing.T) {
+	for _, c := range []struct{ name, model, effort string }{
+		{"none", "claude-sonnet-5", "none"},
+		{"minimal", "claude-sonnet-5", "minimal"},
+		{"unknown_model", "claude-not-a-model", "low"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			body := []byte(`{"model":"` + c.model + `","messages":[],"max_tokens":10,` +
+				`"reasoning_effort":"` + c.effort + `"}`)
+
+			_, _, err := provider.TranslateAnthropicRequest(body, 4096)
+			unsupported, ok := provider.AsUnsupported(err)
+			if !ok {
+				t.Fatalf("err = %v, want an unsupported-parameter error", err)
+			}
+			if unsupported.Parameter != "reasoning_effort" {
+				t.Errorf("Parameter = %q, want reasoning_effort", unsupported.Parameter)
+			}
+			if unsupported.Detail == "" {
+				t.Error("the refusal carries no reason")
+			}
+		})
+	}
+}

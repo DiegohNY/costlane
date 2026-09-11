@@ -1,0 +1,54 @@
+# Gemini thinking levels, for the generateContent API.
+#
+# Every level here was read from the page cited in source_url on the date in
+# fetched_at. Nothing is derived, inferred, or remembered — the same rule the
+# price seed follows, for the same reason: thinking is billed as output, so a
+# mapping nobody can trace is money nobody can account for.
+#
+# Three things this file captures that a switch statement could not.
+#
+# The mechanism changed under us. Gemini 2.5 took a numeric
+# thinkingConfig.thinkingBudget; Gemini 3.x takes a string enum,
+# thinkingConfig.thinkingLevel, and the Gemini 3.8 Flash page instructs
+# readers to "Replace thinking_budget with the string enum thinking_level".
+# A numeric budget for these models could not be sourced, so none is written.
+#
+# The levels a model accepts differ by model, and an unaccepted level is an
+# upstream error rather than a rounding: "minimal thinking level is not
+# supported for Gemini 3.8 Flash and will return an error". A level with no
+# row is refused by costlane before the request is paid for.
+#
+# Thinking cannot be turned off at all on these models: "Reasoning cannot be
+# turned off for Gemini 2.5 Pro or 3 models." reasoning_effort "none"
+# therefore has no row anywhere in this file, and is refused by name. A
+# caller who asked for no thinking and was silently given thinking would be
+# billed for it without ever being told.
+provider: google
+models:
+  # Levels and their meanings from the model page; the reasoning_effort
+  # vocabulary the levels are keyed by is Google's own, from the OpenAI
+  # compatibility page, which for this model publishes no column — so only
+  # the levels that carry the same name on both sides are mapped here.
+  - model: gemini-3.8-flash
+    source_url: https://ai.google.dev/gemini-api/docs/generate-content/latest-model
+    fetched_at: 2026-09-11T00:00:00Z
+    levels:
+      - {reasoning_effort: low,    provider_level: low,    source_url: https://ai.google.dev/gemini-api/docs/generate-content/latest-model}
+      - {reasoning_effort: medium, provider_level: medium, source_url: https://ai.google.dev/gemini-api/docs/generate-content/latest-model}
+      - {reasoning_effort: high,   provider_level: high,   source_url: https://ai.google.dev/gemini-api/docs/generate-content/latest-model}
+      # No minimal: an error on this model, with no documented substitute.
+      # No none: thinking cannot be disabled on a Gemini 3 model.
+
+  # This model has a column in Google's own reasoning_effort table, which is
+  # where the minimal row comes from: minimal maps onto low rather than being
+  # refused, because Google publishes that mapping rather than us inventing
+  # it.
+  - model: gemini-3.1-pro-preview
+    source_url: https://ai.google.dev/gemini-api/docs/generate-content/gemini-3
+    fetched_at: 2026-09-11T00:00:00Z
+    levels:
+      - {reasoning_effort: minimal, provider_level: low,    source_url: https://ai.google.dev/gemini-api/docs/openai}
+      - {reasoning_effort: low,     provider_level: low,    source_url: https://ai.google.dev/gemini-api/docs/openai}
+      - {reasoning_effort: medium,  provider_level: medium, source_url: https://ai.google.dev/gemini-api/docs/openai}
+      - {reasoning_effort: high,    provider_level: high,   source_url: https://ai.google.dev/gemini-api/docs/openai}
+      # No none: thinking cannot be disabled on a Gemini 3 model.

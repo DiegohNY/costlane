@@ -102,10 +102,18 @@ before a cancel was possible at all. The contrast is not 1 against 4000 but
 
 The check compensates rather than pretending otherwise: it records the
 provider's own usage figures from the last chunk read before the cancel, so the
-comparison is against a known quantity instead of an expectation. Removing the
-problem at the source means being able to ask Gemini not to think, which
-costlane currently cannot —
-[#24](https://github.com/DiegohNY/costlane/issues/24).
+comparison is against a known quantity instead of an expectation.
+
+Removing the problem at the source would mean asking Gemini not to think.
+Since [#24](https://github.com/DiegohNY/costlane/issues/24) costlane can ask
+it to think *less* — `reasoning_effort` reaches the model as
+`thinkingConfig.thinkingLevel` — but Google states that reasoning cannot be
+turned off for Gemini 3 models, so the 1-against-4000 contrast the check was
+designed around is not available on any model this gateway serves. The next
+run of (c) asks for `reasoning_effort: low`, and what that costs in thinking
+is a figure to be read from the run rather than predicted here. The indicative
+row below stays where it is: a measurement that was honest about its limits is
+not deleted because a better one arrives.
 
 For each provider the test prints, in one block: the UTC start timestamp, when
 the first chunk arrived and how long it took, the UTC cancellation timestamp,
@@ -192,9 +200,11 @@ thought before emitting anything. By the time a cancel was possible at all,
 budget the request was allowed. The check was designed around a contrast
 between roughly one token and roughly four thousand; on a thinking model that
 contrast does not exist, and the honest band narrowed to 2566 against 4000.
-Closing that properly needs
-[#24](https://github.com/DiegohNY/costlane/issues/24), which would let a
-request ask Gemini not to think.
+[#24](https://github.com/DiegohNY/costlane/issues/24) narrows it further
+rather than closing it: a request can now ask for `reasoning_effort: low`, but
+not for no thinking at all, because Google does not offer that on Gemini 3
+models. This row is what the default thinking level cost; the next run records
+what `low` costs, beside it.
 
 #### What Google's own telemetry says
 

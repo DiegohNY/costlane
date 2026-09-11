@@ -3,6 +3,44 @@
 Written by hand. A list generated from commit subjects tells you what was
 touched; this tells you what changed for you.
 
+## v0.2.2 — unreleased
+
+### Added
+
+- **`reasoning_effort` reaches the provider.** It is translated into each
+  destination's own thinking control: `thinkingConfig.thinkingLevel` for
+  Gemini, `output_config.effort` for Anthropic. OpenAI is untouched, because
+  the field is that dialect's own and the body travels byte for byte.
+
+  **In v0.2.1 and earlier `reasoning_effort` was silently dropped for
+  Gemini.** It was on no denylist, so it was neither translated nor refused:
+  the model applied its default thinking budget and Google billed it as
+  output. A one-word answer measured 173 output tokens, of which 172 were
+  thought. `thinkingConfig` sent directly in an OpenAI-dialect body was
+  dropped the same way; both are now handled, and the native spellings are
+  refused by name.
+
+  The levels are seeded data with a source URL and a fetch date per row, in
+  the shape the price table uses
+  ([ADR 0009](docs/adr/0009-sourced-reasoning-levels-or-refusal.md)).
+
+### Changed
+
+- **An unmappable reasoning level is a 400, not a quiet default.**
+  `reasoning_effort: none` is refused on both seeded Gemini models, because
+  Google states that reasoning cannot be turned off for Gemini 3 models; so
+  is `minimal` on `gemini-3.8-flash`, which rejects that level and has no
+  documented substitute. A model with no seeded table refuses every level.
+  The refusal names the level asked for and lists the levels the model has.
+
+  A request that sends no `reasoning_effort` is unchanged: no thinking
+  configuration is added, and the model applies its own default.
+
+- **Gemini 3.x takes a level, not a budget.** The numeric
+  `thinkingConfig.thinkingBudget` of the 2.5 generation is not used: the
+  Gemini 3.8 Flash documentation instructs readers to replace it with the
+  string enum, and no numeric budget for these models could be sourced.
+
 ## v0.2.1 — 2026-09-11
 
 ### Fixed

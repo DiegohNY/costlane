@@ -87,7 +87,7 @@ func TestGoogleRequestTranslation(t *testing.T) {
 		{"role":"assistant","content":"hello"}
 	],"max_tokens":100,"temperature":0.5}`)
 
-	out, err := provider.TranslateGoogleRequest(body)
+	out, err := provider.TranslateGoogleRequest(body, "gemini-3.8-flash")
 	if err != nil {
 		t.Fatalf("translating: %v", err)
 	}
@@ -164,7 +164,7 @@ func TestGoogleRefusesUnsupportedParameters(t *testing.T) {
 	for _, param := range []string{"logprobs", "seed", "n", "frequency_penalty"} {
 		t.Run(param, func(t *testing.T) {
 			body := []byte(`{"model":"gemini-3.8-flash","messages":[],"` + param + `":1}`)
-			_, err := provider.TranslateGoogleRequest(body)
+			_, err := provider.TranslateGoogleRequest(body, "gemini-3.8-flash")
 			unsupported, ok := provider.AsUnsupported(err)
 			if !ok {
 				t.Fatalf("err = %v, want an unsupported-parameter error", err)

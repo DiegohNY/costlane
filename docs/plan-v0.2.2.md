@@ -14,19 +14,21 @@ quota.
 
 ---
 
-## W1 — Map `reasoning_effort` to `thinkingConfig` (#24)
+## W1 — Map `reasoning_effort` to each provider's thinking control (#24)
 
-**Estimate: 1½–2 days.**
+**Estimate was 1½–2 days.** Implementation and documentation done in one
+session; the live verification below is still outstanding, because there is no
+credential on this machine.
 
-Goal: a caller can tell Gemini not to think, and stop paying for thinking they
-did not ask for.
+Goal: a caller can tell Gemini to think less, and stop paying for thinking
+they did not ask for.
 
-`TranslateGoogleRequest` builds `generationConfig` from a fixed set of OpenAI
-fields — `max_tokens`, `temperature`, `top_p`, `stop`. Gemini's
-`thinkingConfig` has no path through it, and a `thinkingConfig` in an incoming
-body is not refused either: it is simply ignored, because it is not on the
-unsupported denylist. So a caller gets whatever thinking budget the model
-defaults to, and is billed for it.
+`TranslateGoogleRequest` built `generationConfig` from a fixed set of OpenAI
+fields — `max_tokens`, `temperature`, `top_p`, `stop`. Gemini's thinking
+configuration had no path through it, and a `thinkingConfig` in an incoming
+body was not refused either: it was simply ignored, because it was not on the
+unsupported denylist. So a caller got whatever thinking budget the model
+defaults to, and was billed for it.
 
 Google bills thinking as output. Two live measurements:
 
@@ -35,94 +37,116 @@ Google bills thinking as output. Two live measurements:
 | "Reply with exactly: ok" | 1 | 172 | **173** |
 | a short reasoning prompt, streamed | 50 | 279 | **329** |
 
-A one-word answer costing a hundred and seventy-three tokens is not a rounding
-error, and a cost-control gateway that cannot pass through the parameter
-controlling it is not offering the control it advertises.
+### What the documentation actually said
 
-It also contradicts a promise costlane makes elsewhere, in the README and in
-the translation tests: **a parameter with no equivalent in the destination is
-refused by name rather than dropped.** `thinkingConfig` is dropped. So is
-`reasoning_effort`.
+**The title of this item was wrong, and reading the pages before writing the
+table is what caught it.** Gemini 2.5 took a numeric
+`thinkingConfig.thinkingBudget`; Gemini 3.x takes a string enum,
+`thinkingConfig.thinkingLevel`, and the Gemini 3.8 Flash page instructs
+readers to "Replace `thinking_budget` with the string enum `thinking_level`".
+No numeric budget for the seeded models could be sourced, so none was written.
+
+Two further facts arrived with it, and both removed a box this plan had
+already ticked in its head:
+
+- **Thinking cannot be disabled.** "Reasoning cannot be turned off for Gemini
+  2.5 Pro or 3 models." The `none` level this item was designed around has no
+  destination on either seeded model.
+- **`minimal` is not universal.** "`minimal` thinking level is not supported
+  for Gemini 3.8 Flash and will return an error", while Google's own
+  `reasoning_effort` table publishes `minimal → low` for Gemini 3.1 Pro and no
+  column for 3.8 Flash at all.
+
+Anthropic went the other way: it publishes `output_config.effort`, an enum of
+`low`, `medium`, `high`, `xhigh` and `max` on every model this repository
+prices. The parameter this plan expected to refuse there has a real
+equivalent, so it is mapped.
 
 ### The mapping
 
-- [ ] Read Google's current documentation for `thinkingConfig.thinkingBudget`:
-      the valid range, what `0` means, what `-1` (dynamic) means, and whether
-      the range differs per model
-- [ ] Decide the level-to-budget table and record each figure with a
-      `source_url` and a `fetched_at`, in the shape the price seed uses. **A
-      number with no source does not enter this repository** — that rule is
-      what makes the price table auditable, and it applies here too
-- [ ] Seed it as data rather than as constants in a switch, so a change is a
-      data change with provenance rather than a code change without
+- [x] Read Google's current documentation for the thinking configuration: the
+      shape, the accepted levels, and whether they differ per model. They do.
+- [x] Record each level with a `source_url` and a `fetched_at`, in the shape
+      the price seed uses
+- [x] Seed it as data rather than as constants in a switch:
+      `internal/provider/seed/google-thinking.yaml` and
+      `internal/provider/seed/anthropic-effort.yaml`
 
-Shape to fill in from the documentation, not from memory:
+Read from the documentation on 2026-09-11, not from memory:
 
-| `reasoning_effort` | `thinkingBudget` | source |
-|---|---|---|
-| `none` | 0 | _to be read_ |
-| `minimal` | ? | _to be read_ |
-| `low` | ? | _to be read_ |
-| `medium` | ? | _to be read_ |
-| `high` | ? | _to be read_ |
-| absent | absent — the model's own default | n/a |
+| `reasoning_effort` | `gemini-3.8-flash` | `gemini-3.1-pro-preview` | source |
+|---|---|---|---|
+| `none` | **refused** | **refused** | [openai compatibility](https://ai.google.dev/gemini-api/docs/openai) — reasoning cannot be turned off for Gemini 3 models |
+| `minimal` | **refused** | `low` | [gemini-3](https://ai.google.dev/gemini-api/docs/generate-content/gemini-3), [latest-model](https://ai.google.dev/gemini-api/docs/generate-content/latest-model) — an error on 3.8 Flash; published as `low` for 3.1 Pro |
+| `low` | `low` | `low` | the model pages above |
+| `medium` | `medium` | `medium` | the model pages above |
+| `high` | `high` | `high` | the model pages above |
+| absent | absent — the model's own default | absent | n/a |
 
-- [ ] If a model does not accept a budget at all, that is a refusal by name,
+And for Anthropic, `output_config.effort`, from
+[effort](https://platform.claude.com/docs/en/build-with-claude/effort) on the
+same date: `low`, `medium` and `high` map by name on `claude-fable-5-1`,
+`claude-opus-5` and `claude-sonnet-5`; `none` and `minimal` are refused;
+`xhigh` and `max` have no `reasoning_effort` spelling to arrive as.
+
+- [x] If a model does not accept a level at all, that is a refusal by name,
       not a silent drop
 
 ### The implementation
 
-- [ ] `TranslateGoogleRequest` reads `reasoning_effort` and emits
-      `generationConfig.thinkingConfig.thinkingBudget`
-- [ ] The streaming path uses the same translation — it already shares
-      `TranslateGoogleRequest`, so this should come for free, and there should
-      be a test that says so rather than an assumption that it does
-- [ ] `reasoning_effort` against OpenAI passes through untouched: it is that
-      dialect's own field, and the body reaches OpenAI byte for byte
-- [ ] `reasoning_effort` against Anthropic is **refused by name**, unless the
-      documentation gives an equivalent — in which case it is mapped, and the
-      mapping is sourced like Google's
-- [ ] A `thinkingConfig` sent directly in an OpenAI-dialect body is refused by
-      name rather than ignored, which is the behaviour every other unsupported
-      parameter already gets
+- [x] `TranslateGoogleRequest` reads `reasoning_effort` and emits
+      `generationConfig.thinkingConfig.thinkingLevel`. It now takes the routed
+      model as an argument: a `provider/model` prefix is resolved before the
+      adapter sees it, so the body's own `model` is the wrong key for the
+      table.
+- [x] The streaming path uses the same translation, with a test that says so
+      rather than an assumption that it does — and a second test that a
+      refused level never opens a connection
+- [x] `reasoning_effort` against OpenAI passes through untouched
+- [x] `reasoning_effort` against Anthropic is **mapped**, because the
+      documentation gives an equivalent, and the mapping is sourced like
+      Google's
+- [x] `thinkingConfig` sent directly in an OpenAI-dialect body is refused by
+      name, along with `thinkingLevel`, `thinking_level`, `thinkingBudget` and
+      `thinking_budget`
 
 ### The tests
 
-- [ ] Golden fixtures for the translated request at each level, one file per
-      case, so what is supported is enumerable rather than folded into prose
-- [ ] The fake provider honours `thinkingConfig.thinkingBudget`: with `0` it
-      reports no `thoughtsTokenCount`, so the mapping is covered end to end
-      without spending anything
-- [ ] TEST: a request with `reasoning_effort: none` through the whole gateway
-      records `reasoning = 0` and an output count equal to the visible tokens
-- [ ] TEST: each refusal above, by name, with the parameter in the message
-- [ ] VERIFY, against the live API: `reasoning_effort: none` on
-      `gemini-3.8-flash` returns `usageMetadata` with no `thoughtsTokenCount`.
-      One request. Recorded in `docs/provider-verification.md` beside the
-      others
+- [x] Golden fixtures for the translated request, one file per case, in
+      `internal/provider/testdata/google`
+- [x] TEST: each refusal above, by name, with the level in the message
+- [x] TEST: a request with no `reasoning_effort` grows no thinking
+      configuration at all
+- [x] TEST: end to end through the gateway — a mapped level is accepted, an
+      unmappable one is a 400 that names the parameter and the level. These
+      four subtests need Docker and were **not run on this machine**; CI runs
+      them.
+- [~] The fake provider honours the thinking level. **Not done, and the
+      reason is the mechanism change:** the plan wanted `thinkingBudget: 0` to
+      produce no `thoughtsTokenCount`, and there is no budget `0` to send. A
+      fake that invented a thought count per level would be asserting our own
+      guess about Google's behaviour. What the level does on the wire is
+      pinned by the golden fixtures and by a test that captures the upstream
+      request body on the streaming path.
+- [ ] VERIFY, against the live API: `reasoning_effort: low` on
+      `gemini-3.8-flash` returns a `usageMetadata` with a `thoughtsTokenCount`
+      below the default run's. One request. **Blocked: no credential.**
 
 ### What this unblocks
 
-- [ ] **Check (c) of the provider verification becomes decisive.** Today the
-      cancellation check asks for `max_tokens: 4000` and cancels after the
-      first chunk — but on a thinking model the first chunk arrives only once
-      the thinking is done, so 2566 of the 4000 tokens were already produced
-      before a cancel was possible. The intended contrast of 1 against 4000 is
-      really 2566 against 4000.
+- [~] **Check (c) of the provider verification gets a sharper contrast, but
+      not the one it was designed around.** The check asks for `max_tokens:
+      4000` and cancels after the first chunk; on a thinking model the first
+      chunk arrives only once the thinking is done, so 2566 of the 4000 tokens
+      were already produced before a cancel was possible.
 
-      With `thinkingBudget: 0` the first chunk is a real output token and the
-      contrast returns: **1 against 4000**, which is the comparison the check
-      was designed around.
-- [ ] Re-run check (c) with thinking disabled, and record the result **beside**
-      the indicative one rather than replacing it. The old row stays: a
-      measurement that was honest about its limits is not deleted because a
-      better one arrived
-
-**Why 1½–2 days.** The translation is an afternoon. The mapping table is the
-part that takes care — every figure needs a source, and the levels may not map
-cleanly onto a numeric budget. The live verification costs one request and a
-day's patience if the free tier is exhausted, which on twenty requests per day
-per model it often is.
+      With thinking disabled the contrast would return to 1 against 4000.
+      **Thinking cannot be disabled on these models**, so the check moves to
+      `reasoning_effort: low` and the contrast becomes whatever `low` costs —
+      a number to be recorded from the run, not predicted here.
+- [ ] Re-run check (c) at `reasoning_effort: low`, and record the result
+      **beside** the indicative one rather than replacing it. The old row
+      stays. **Blocked on the same credential.**
 
 ---
 
