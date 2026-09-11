@@ -92,26 +92,42 @@ Google a stream to cancel — which V1 supplies.
 dollars each is ample; the checks cost cents. V1 must land first for the
 Google row to be runnable at all.
 
-- [ ] Run check (a), non-streaming counts, against OpenAI and Anthropic
-- [ ] Run check (b), streaming counts, against all three
-- [ ] Run check (c), cancellation, against all three: `max_tokens: 4000`,
-      cancel after the first chunk
-- [ ] Read each provider's usage dashboard in the UTC window the test
-      printed, and record the output tokens actually billed
-- [ ] Fill the three result tables in `docs/provider-verification.md`, with
-      request ids and the raw usage payload behind each row
+- [~] Run check (a): done for Google; OpenAI and Anthropic still need a credential
+- [~] Run check (b): done for Google; the other two still need a credential
+- [~] Run check (c): done for Google; the other two still need a credential
+- [x] Read what the provider recorded in the UTC window the test printed —
+      for Google this came from Cloud Monitoring rather than a dashboard,
+      which makes it a query rather than a screenshot
+- [x] Fill the three result tables in `docs/provider-verification.md`, with
+      the raw usage payload behind each row and every query used
 - [ ] If a provider keeps generating after the connection closes: say so by
       name in the README's known limitations, and make `drain` the
       recommended policy for keys routed to it. A default that overspends is
       the one failure this product cannot excuse
-- [ ] README: replace "not measured on any provider" with what was measured
-- [ ] VERIFY: every verdict in the document comes from a dashboard rather
-      than from documentation
+- [x] README: replaced "not measured on any provider" with what was measured
+- [x] VERIFY: every figure in the document comes from the provider rather
+      than from its documentation. Google's cancellation row is recorded as
+      *indicative* rather than as a verdict: zero output tokens were recorded
+      for the cancelled request, which is consistent with generation stopping
+      and equally consistent with output usage being written only on
+      completion. Separating those needs a bill, and a free-tier project
+      produces none
 
-**Why 1–2 days.** The work is an hour. The waiting is not: provider usage
-dashboards report with a lag, sometimes hours, and a figure read too early
-is worse than none. Budget a day for the runs and the write-up, and expect
-the dashboard confirmations to arrive the day after.
+**Why 1–2 days.** The work was an hour. The waiting was not, though not for
+the reason predicted: the lag that mattered was the free tier's twenty
+requests per day per model, spent capturing fixtures, which cost a day
+outright. Cloud Monitoring then answered in minutes what was expected to need
+a human reading a dashboard — and a 503 spends a request too, which is why
+the retry loops have caps.
+
+**Unplanned, and found along the way.** Go caches a passing test, so a retry
+loop reported a success an hour after it happened and handed over the UTC
+window of the older run; `-count=1` is now in the documented command.
+`COSTLANE_VERIFY_ONLY` runs one check rather than three, because on twenty
+requests a day the difference matters. And the check's premise — one token
+against four thousand — does not survive a thinking model, which produced
+2566 of its 4000 before a cancel was even possible: see
+[#24](https://github.com/DiegohNY/costlane/issues/24).
 
 ---
 

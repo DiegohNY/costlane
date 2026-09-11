@@ -1,11 +1,13 @@
 # Stories
 
-Internal notes. Six bugs, what found each one, and what changed afterwards.
-Written while the details were fresh, because in a month reconstructing them
-from diffs would take a day.
+Internal notes. Six bugs and one confirmation: what found each, and what
+changed afterwards. Written while the details were fresh, because in a month
+reconstructing them from diffs would take a day.
 
-The pattern worth noticing: not one of these was found by reading the code.
-Every one was found by a mechanism that ran the code and disagreed with it.
+The pattern worth noticing: not one of the bugs was found by reading the code.
+Every one was found by a mechanism that ran the code and disagreed with it —
+and the one piece of evidence that the code was *right* came from a system that
+computed the same number independently.
 
 ---
 
@@ -176,11 +178,62 @@ context.
 
 ---
 
+## 7. Three independent readings of the same two numbers
+
+**Not a bug. The strongest evidence the meter has ever had, and it arrived by
+accident.**
+
+Every other story here is something that was wrong. This one is about how you
+find out that something is right, which turns out to be harder and rarer.
+
+The meter's whole claim is that it counts what the provider counts. Proving it
+is circular by default: our figure comes from parsing the provider's payload,
+so comparing the two compares a parse against itself. An earlier version of the
+verification did exactly that and passed while establishing nothing — see story
+5's shape, repeated in a different place.
+
+Then, chasing a cancellation result, we went looking in Cloud Monitoring and
+found `generativelanguage.googleapis.com/generate_content_usage_output_token_count`:
+Google's own telemetry, computed by Google, for its own purposes, with no
+connection to anything we send or parse.
+
+Two requests had run that morning:
+
+| | our meter | provider's payload | Google's telemetry |
+|---|---|---|---|
+| non-streaming | 173 | 173 | |
+| streaming | 329 | 329 | |
+| **total for that minute** | **502** | **502** | **502** |
+
+Three readings of the same two requests, from three places, agreeing exactly.
+Ours parsed from a response body. The provider's, stated in that body. Google's,
+emitted by the service and never consulted until afterwards.
+
+What makes it worth writing down is the shape of the agreement rather than the
+fact of it. Both requests were thinking requests: 172 of the 173 tokens in the
+first were thought rather than written, and 279 of the 329 in the second. A
+meter reading `candidatesTokenCount` — the obvious field, the one that means
+"the answer" — would have reported 1 and 50. It would have matched the response
+body it parsed, passed every test written against that body, and under-billed
+by 98%.
+
+The telemetry is the only source in that table that could have caught it, and
+it agreed. That is the difference between a test that confirms a parse and a
+measurement that confirms a meter.
+
+**The lesson that generalises:** when you verify a value against the same
+system that produced it, you have tested a transcription. A third source — one
+that computed the number independently, for its own reasons — is worth more
+than any number of assertions, and it is usually sitting somewhere nobody
+thought to look.
+
+---
+
 ## What this adds up to
 
-Six bugs, five mechanisms:
+Six bugs and one confirmation, six mechanisms:
 
-| Bug | What caught it |
+| Finding | What caught it |
 |-----|----------------|
 | `.gitignore` hid `cmd/` | Docker build in CI |
 | Tests with no teeth | Deliberate sabotage of the implementation |
@@ -188,7 +241,12 @@ Six bugs, five mechanisms:
 | Unpriced model reserved zero | A test asking about an absent price |
 | Out-of-format canary | An integration test that greps every seam |
 | Cancelled context lost records | Reasoning about lifetimes, then a test |
+| *(nothing — the meter was right)* | A third source that computed the number itself |
 
 Not one of them was found by review. Two were found by a build step that had
 nothing to do with the bug. Three were found because a test existed before the
 code did.
+
+And the one entry that is not a bug is the most useful of the seven: the only
+evidence that the meter is correct came from a system that had no idea we
+existed.

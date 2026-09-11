@@ -92,10 +92,11 @@ same statement ([ADR 0003](docs/adr/0003-reserve-in-one-statement.md)).
 provider for its usage figures, reads them as the stream goes past, and strips
 the chunk again if the client never asked for it. Cost comes from the
 provider's own numbers, not from a tokeniser guessing at them. All three
-providers stream, each in its own dialect, and each dialect's translation is
-pinned by fixtures captured from the live API rather than written from its
-documentation — which, for Gemini, described two shapes the endpoint does not
-send.
+providers stream, each in its own dialect — Gemini since v0.2.0, which closes
+the one limitation v0.1.0's readers were told to expect. Each dialect's
+translation is pinned by fixtures captured from the live API rather than
+written from its documentation, which for Gemini described two shapes the
+endpoint does not send.
 
 **Prices are versioned, sourced and dated.** One row per token kind, per
 context tier, per validity window, each carrying the URL it was read from and
@@ -127,9 +128,10 @@ agree by construction.
 stop generating when the connection closes, and draining to learn an exact
 figure means paying for tokens nobody will read. Set a key's
 `disconnect_policy` to `drain` to buy exactness at that price
-([ADR 0001](docs/adr/0001-cancel-not-drain.md)). This rests on documented
-provider behaviour that costlane has not yet measured — see the known
-limitations below before relying on it.
+([ADR 0001](docs/adr/0001-cancel-not-drain.md)). Measured on Gemini, where a
+cancelled request recorded zero output tokens in Google's own telemetry; not
+measured on OpenAI or Anthropic. See the known limitations below before
+relying on it.
 
 **An exhausted budget is 402, never 429.** Retrying does not help; the body
 carries the limit, the spend, the outstanding reservations and when the window
@@ -163,23 +165,28 @@ version — because a dependency being down is not a reason to be restarted.
 
 Stated plainly, because finding them yourself would be worse.
 
-- **The cancel default is not measured on any provider.** costlane closes the
-  upstream connection when a client disconnects, on the documented behaviour
-  that providers stop generating and stop charging. That belief has not been
-  confirmed against a live API for OpenAI, Anthropic or Google. **If you need
-  certainty over cost rather than a documented default, set
-  `disconnect_policy: drain` on the keys that route to them** and pay for an
-  exact figure. What was checked, and what was not, is recorded in
+- **The cancel default: Gemini has indicative evidence (zero output tokens
+  recorded after the disconnect), not confirmed by a bill; OpenAI and Anthropic
+  are not measured.** costlane closes the upstream connection when a client
+  disconnects, on the documented behaviour that providers stop generating and
+  stop charging. **If you need certainty over cost rather than a documented
+  default, set `disconnect_policy: drain`** and pay for an exact figure. What
+  was measured, and why it stops short of a verdict, is in
   [provider verification](docs/provider-verification.md); closing the gap is
   [#13](https://github.com/DiegohNY/costlane/issues/13).
 
-  Gemini is a partial exception, and only for accounting rather than for
-  spend: it restates its running totals on every chunk, so the last chunk
-  read before a disconnect is the provider's own exact figure. A cancelled
-  Gemini stream is metered from a measurement, not an estimate. That says
-  nothing about whether Google stops charging, which is what #13 is for.
-- **Token counting is verified against a live API for Gemini only.** Everything
-  else is tested against a fake provider that reproduces each dialect.
+  Separately, and only about accounting rather than spend: Gemini restates its
+  running totals on every chunk, so the last chunk read before a disconnect is
+  the provider's own exact figure. A cancelled Gemini stream is metered from a
+  measurement, not an estimate.
+- **Token counting is verified against a live API for Gemini only**, streaming
+  and not, with Google's own telemetry agreeing to the token. Everything else
+  is tested against a fake provider that reproduces each dialect.
+- **costlane cannot ask Gemini to stop thinking.** There is no path from the
+  OpenAI dialect to `thinkingConfig`, so a caller gets the model's default
+  thinking budget and is billed for it — and Google bills thinking as output.
+  A one-word answer measured 173 output tokens, of which 172 were thought
+  ([#24](https://github.com/DiegohNY/costlane/issues/24)).
 - **Vertex AI and Bedrock are not supported.** Google means the Gemini API with
   an API key. Vertex needs a different auth flow and a different URL shape, and
   neither is seeded or tested.

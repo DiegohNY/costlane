@@ -3,6 +3,92 @@
 Written by hand. A list generated from commit subjects tells you what was
 touched; this tells you what changed for you.
 
+## v0.2.0 — unreleased
+
+### Added
+
+- **Gemini streaming.** `streamGenerateContent` is relayed chunk by chunk and
+  metered exactly, so all three providers now stream. The translation is
+  pinned by fixtures captured from the live API rather than written from the
+  documentation, which describes two dialects that endpoint does not send.
+  Tool calls, thinking tokens and the `MAX_TOKENS` truncation reason are all
+  covered ([#12](https://github.com/DiegohNY/costlane/issues/12)).
+- **A per-provider definition of a clean close.** OpenAI ends with `[DONE]`,
+  Anthropic with `message_stop`, Gemini by closing the connection after a
+  chunk carrying a `finishReason`. Each adapter answers for its own protocol
+  ([ADR 0008](docs/adr/0008-per-provider-clean-close.md)).
+- **`:latest` moves only after the image has booted.** A release now pushes
+  the version tag, starts that exact image against a real Postgres, waits for
+  `/readyz` and checks that `/healthz` reports the tag — and only then
+  re-points `:latest`, by copying the manifest that was tested rather than by
+  building a second time. A release that fails its own boot check leaves
+  `:latest` where it was.
+- **Exact accounting for a cancelled Gemini stream.** Gemini restates its
+  running totals on every chunk, so the last one read before a disconnect is
+  the provider's own figure. Those records say `usage_source = provider`
+  rather than `tokenizer`. A property of that one protocol, and only about
+  what we can write down — not about whether Google stops charging.
+
+### Known limitations
+
+Two of v0.1.0's limitations survive this release, and one does not.
+
+- **Resolved: Gemini streams.** A streamed request to a Gemini model is
+  relayed and metered like any other, as of this release.
+- **Partly closed — the cancel default is now measured on Gemini.** A request
+  cancelled after one chunk recorded zero output tokens in Google's own
+  telemetry, which is consistent with generation stopping at the disconnect.
+  It is recorded as indicative rather than conclusive, and the reasoning is in
+  [provider verification](docs/provider-verification.md). OpenAI and Anthropic
+  remain unmeasured for want of a credential; set `disconnect_policy: drain`
+  on keys routed there if you need certainty —
+  [#13](https://github.com/DiegohNY/costlane/issues/13).
+- **Still open — costlane cannot ask Gemini to stop thinking.** No path from
+  the OpenAI dialect to `thinkingConfig`, so a caller pays for a thinking
+  budget they cannot set. Google bills thinking as output: a one-word answer
+  measured 173 output tokens, 172 of them thought
+  ([#24](https://github.com/DiegohNY/costlane/issues/24)).
+- **Still open — Vertex AI is not seeded and not supported.** Google means the
+  Gemini API with an API key. Vertex needs a different auth flow, a different
+  URL shape, and rates that have historically diverged from the Gemini API's;
+  an unverifiable rate does not enter the price table. Bedrock likewise.
+
+Everything else in v0.1.0's list stands unchanged.
+
+### Fixed
+
+Four defects that were live in v0.1.0. **If you ran v0.1.0, the first two
+affected you.**
+
+- **Requests with thinking were flagged `partially_priced` although their cost
+  was correct.** Reasoning tokens are a breakdown of output, not a charge of
+  their own — every provider that reports them counts them inside its output
+  total already — but they sat in the pricing loop with no rate behind them.
+  **Impact: cosmetic but misleading.** Every Gemini request that thought, and
+  every OpenAI reasoning request, carried a flag saying its figure might be
+  incomplete when it was exact. No money was miscounted. If you filtered or
+  alerted on `partially_priced`, those alerts were false.
+- **A client asking for usage on an Anthropic stream never received the
+  chunk.** `stream_options.include_usage` was read by the OpenAI adapter
+  alone, and the proxy drops a stream's trailing chunks unless the client is
+  known to have asked — so the usage chunk Anthropic's translator assembles
+  was built and discarded on every request. **Impact: real.** Any client
+  relying on the usage chunk of a streamed Anthropic response got nothing and
+  had to guess. costlane's own accounting was unaffected: it reads those
+  figures on a different path.
+- **Negative token counts from a provider passed straight into the meter.**
+  `Table.Cost` refuses a negative count with an error that callers log and
+  swallow into a zero cost, so an absurd figure upstream would have become a
+  free request. Now clamped to zero and marked degraded in all three
+  normalisers and in the Anthropic stream translator. **Impact: none
+  observed.** No provider is known to have sent one; this was found by
+  fuzzing, not by an invoice.
+- **The fake provider's Gemini streaming dialect matched neither the captures
+  nor the documentation.** Nothing had ever exercised it, which is how it
+  drifted. **Impact: tests only.** It never ran in production, but it means
+  any confidence drawn from Gemini streaming tests before this release was
+  worth less than it looked.
+
 ## v0.1.0 — 2026-09-10
 
 The first release. costlane proxies chat completions to OpenAI, Anthropic and
@@ -51,6 +137,9 @@ Two of these are load-bearing enough to have issues of their own.
 - **Gemini is non-streaming only.** There is no Gemini streaming adapter, so a
   streamed request to a Gemini model is refused by name rather than buffered.
   First item of v0.2 — [#12](https://github.com/DiegohNY/costlane/issues/12).
+  *(Resolved in v0.2.0. Left standing here because this section records what
+  v0.1.0 shipped, and editing it would make the entry lie about the release it
+  describes.)*
 - **The cancel default is not measured on any provider.** costlane closes the
   upstream connection when a client disconnects, on documented provider
   behaviour that has not been confirmed against a live API: OpenAI and
