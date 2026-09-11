@@ -1,0 +1,46 @@
+# Anthropic effort levels, for the Messages API.
+#
+# Every level here was read from the page cited in source_url on the date in
+# fetched_at, under the same rule the price seed follows: nothing derived,
+# nothing remembered.
+#
+# Anthropic publishes an effort enum rather than a token budget, so
+# reasoning_effort has a real equivalent here and is mapped rather than
+# refused — which is the condition the v0.2.2 plan set for this provider.
+# output_config.effort accepts low, medium, high, xhigh and max, and defaults
+# to high; only the three names the OpenAI dialect also uses are mapped,
+# because xhigh and max have no reasoning_effort spelling to arrive as.
+#
+# There is no none and no minimal. Anthropic's thinking can be turned off
+# through a different parameter with its own constraints (thinking.type
+# disabled is rejected at xhigh and max effort), and mapping a level onto a
+# parameter it does not name would be costlane inventing a behaviour rather
+# than translating one.
+#
+# The three models below are the three the price seed carries. Each is on
+# Anthropic's published list of models supporting effort.
+provider: anthropic
+models:
+  - model: claude-fable-5-1
+    source_url: https://platform.claude.com/docs/en/build-with-claude/effort
+    fetched_at: 2026-09-11T00:00:00Z
+    levels:
+      - {reasoning_effort: low,    provider_level: low}
+      - {reasoning_effort: medium, provider_level: medium}
+      - {reasoning_effort: high,   provider_level: high}
+
+  - model: claude-opus-5
+    source_url: https://platform.claude.com/docs/en/build-with-claude/effort
+    fetched_at: 2026-09-11T00:00:00Z
+    levels:
+      - {reasoning_effort: low,    provider_level: low}
+      - {reasoning_effort: medium, provider_level: medium}
+      - {reasoning_effort: high,   provider_level: high}
+
+  - model: claude-sonnet-5
+    source_url: https://platform.claude.com/docs/en/build-with-claude/effort
+    fetched_at: 2026-09-11T00:00:00Z
+    levels:
+      - {reasoning_effort: low,    provider_level: low}
+      - {reasoning_effort: medium, provider_level: medium}
+      - {reasoning_effort: high,   provider_level: high}

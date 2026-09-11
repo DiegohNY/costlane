@@ -630,3 +630,73 @@ func newHarnessWithUnpricedModel(t *testing.T, limit string) *harness {
 	})
 	return h
 }
+
+// reasoning_effort through the whole gateway.
+//
+// The mapping lives in the adapter, but the model it is keyed by arrives
+// from routing, and nothing but a request through the handler crosses that
+// seam. v0.2.1 shipped a provider nothing constructed for exactly this
+// reason: the parts were tested and the joint was not.
+func TestReasoningEffortEndToEnd(t *testing.T) {
+	t.Run("a mapped level is accepted", func(t *testing.T) {
+		h := newHarness(t, "100")
+
+		rec := h.post(t, `{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],`+
+			`"reasoning_effort":"low"}`,
+			map[string]string{
+				fakeprovider.HeaderPromptTokens:     "10",
+				fakeprovider.HeaderCompletionTokens: "5",
+			})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+		}
+	})
+
+	t.Run("an unmappable level is 400 and says why", func(t *testing.T) {
+		h := newHarness(t, "100")
+
+		rec := h.post(t, `{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],`+
+			`"reasoning_effort":"none"}`, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body)
+		}
+
+		body := rec.Body.String()
+		for _, want := range []string{"unsupported_parameter", "reasoning_effort", "none"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the refusal does not mention %q: %s", want, body)
+			}
+		}
+	})
+
+	t.Run("Anthropic maps it rather than refusing it", func(t *testing.T) {
+		h := newHarness(t, "100")
+
+		rec := h.post(t, `{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],`+
+			`"reasoning_effort":"medium"}`,
+			map[string]string{
+				fakeprovider.HeaderPromptTokens:     "10",
+				fakeprovider.HeaderCompletionTokens: "5",
+			})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+		}
+	})
+
+	// OpenAI is the dialect the field comes from, and an OpenAI-compatible
+	// body reaches its provider unchanged. There is nothing to translate
+	// and nothing to refuse.
+	t.Run("OpenAI is left alone", func(t *testing.T) {
+		h := newHarness(t, "100")
+
+		rec := h.post(t, `{"model":"gpt-6-astra","messages":[{"role":"user","content":"hi"}],`+
+			`"reasoning_effort":"none"}`,
+			map[string]string{
+				fakeprovider.HeaderPromptTokens:     "10",
+				fakeprovider.HeaderCompletionTokens: "5",
+			})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body)
+		}
+	})
+}

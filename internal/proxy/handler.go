@@ -501,9 +501,16 @@ func (h *Handler) remainingBudget(ctx context.Context, keyID uuid.UUID) (string,
 // hypothetical one.
 func (h *Handler) writeUpstreamError(w http.ResponseWriter, err error, providerName string) {
 	if unsupported, ok := provider.AsUnsupported(err); ok {
-		api.WriteError(w, http.StatusBadRequest, "unsupported_parameter",
-			fmt.Sprintf("%q is not supported by %s; costlane refuses rather than "+
-				"silently dropping it", unsupported.Parameter, providerName))
+		message := fmt.Sprintf("%q is not supported by %s; costlane refuses rather than "+
+			"silently dropping it", unsupported.Parameter, providerName)
+		if unsupported.Detail != "" {
+			// The parameter is supported and the value is not, which is a
+			// different thing to be told: the caller needs the reason and
+			// the levels this model does have, not just a name.
+			message = fmt.Sprintf("%q is not supported by %s as sent: %s",
+				unsupported.Parameter, providerName, unsupported.Detail)
+		}
+		api.WriteError(w, http.StatusBadRequest, "unsupported_parameter", message)
 		return
 	}
 

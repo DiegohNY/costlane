@@ -21,9 +21,19 @@ import (
 type ErrUnsupportedParameter struct {
 	Parameter string
 	Provider  string
+
+	// Detail says why, when the parameter itself is supported and the
+	// value is not. "reasoning_effort is not supported by google" would
+	// be wrong and unhelpful for a caller whose only mistake was asking
+	// for a level this model does not have.
+	Detail string
 }
 
 func (e *ErrUnsupportedParameter) Error() string {
+	if e.Detail != "" {
+		return fmt.Sprintf("provider: %q is not supported by %s: %s",
+			e.Parameter, e.Provider, e.Detail)
+	}
 	return fmt.Sprintf("provider: %q is not supported by %s", e.Parameter, e.Provider)
 }
 
