@@ -165,19 +165,14 @@ version — because a dependency being down is not a reason to be restarted.
 
 Stated plainly, because finding them yourself would be worse.
 
-- **The cancel default is measured on Gemini and unmeasured elsewhere.**
-  costlane closes the upstream connection when a client disconnects, on the
-  documented behaviour that providers stop generating and stop charging.
-
-  For **Gemini**, a cancelled request recorded **zero output tokens** in
-  Google's own telemetry, ten hours after the fact — consistent with the
-  default being right, though not conclusive, and the reasoning either way is
-  written out in [provider verification](docs/provider-verification.md).
-
-  For **OpenAI and Anthropic**, nothing has been measured: there was no funded
-  credential. **If you need certainty over cost rather than a documented
-  default, set `disconnect_policy: drain` on the keys that route to them** and
-  pay for an exact figure. Closing that gap is
+- **The cancel default: Gemini has indicative evidence (zero output tokens
+  recorded after the disconnect), not confirmed by a bill; OpenAI and Anthropic
+  are not measured.** costlane closes the upstream connection when a client
+  disconnects, on the documented behaviour that providers stop generating and
+  stop charging. **If you need certainty over cost rather than a documented
+  default, set `disconnect_policy: drain`** and pay for an exact figure. What
+  was measured, and why it stops short of a verdict, is in
+  [provider verification](docs/provider-verification.md); closing the gap is
   [#13](https://github.com/DiegohNY/costlane/issues/13).
 
   Separately, and only about accounting rather than spend: Gemini restates its
