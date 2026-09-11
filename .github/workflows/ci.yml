@@ -284,6 +284,41 @@ jobs:
           done
           echo "the usage record never arrived:"; cat usage.json; exit 1
 
+      # compose configures all three providers against the fake one, so this
+      # goes through buildRouter - the seam a Gemini request actually crosses
+      # in the binary, and the one that had no test until v0.2.1.
+      - name: every configured provider is routable, and Gemini answers
+        env:
+          MASTER: dev-master-key-not-for-production-0123456789
+        run: |
+          set -eu
+          key=$(curl -fsS localhost:8080/admin/keys -H "Authorization: Bearer $MASTER" -H "Content-Type: application/json" -d '{"label":"routing","limit_usd":"5"}' | jq -r .key)
+
+          curl -fsS localhost:8080/v1/models -H "Authorization: Bearer $key" > models.json
+          jq -r '.data[].owned_by' models.json | sort -u | tee owners.txt
+          for p in openai anthropic google; do
+            grep -qx "$p" owners.txt || { echo "/v1/models lists nothing owned by $p"; cat models.json; exit 1; }
+          done
+
+          # A real streamed request to a Gemini model, through the whole
+          # binary. Until v0.2.1 this answered 404, because the router had no
+          # google provider to hand it to.
+          curl -fsS localhost:8080/v1/chat/completions -H "Authorization: Bearer $key" -H "Content-Type: application/json" -d '{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}],"stream":true}' -o stream.txt
+          grep -q 'chat.completion.chunk' stream.txt || { echo "no chunks came back from Gemini"; cat stream.txt; exit 1; }
+
+          # A streamed response carries no cost header - the cost is not known
+          # until the stream ends, and the headers left before it began. The
+          # proof that it was metered is the usage record.
+          for _ in $(seq 15); do
+            curl -fsS "localhost:8080/v1/usage?group_by=model" -H "Authorization: Bearer $key" > usage.json
+            if grep -q 'gemini-3.8-flash' usage.json; then
+              cat usage.json
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the Gemini stream produced no usage record"; cat usage.json; exit 1
+
       - name: show the logs when something failed
         if: failure()
         run: docker compose logs

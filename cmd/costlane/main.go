@@ -289,9 +289,23 @@ func buildRouter(cfg *config.Config, client *http.Client, table *pricing.Table) 
 	if cfg.AnthropicKey.IsSet() {
 		providers = append(providers, provider.NewAnthropic(opts(cfg.AnthropicBaseURL, cfg.AnthropicKey)))
 	}
+	// Google was missing here from the first release to v0.2.0. Configuration
+	// read the key, the redactor scrubbed it, the README documented it and the
+	// price seed mapped every Gemini model to a provider named "google" — and
+	// nothing ever constructed one, so Route looked up a provider that was not
+	// in the map and returned 404 for every Gemini model.
+	//
+	// Nothing caught it because nothing crossed this seam: the adapters, the
+	// streaming tests and the live verification all build a provider directly.
+	// buildRouter is reached only from cmd/costlane, and the one end-to-end
+	// test that goes through it asked for an OpenAI model.
+	if cfg.GoogleKey.IsSet() {
+		providers = append(providers, provider.NewGoogle(opts(cfg.GoogleBaseURL, cfg.GoogleKey)))
+	}
 	if len(providers) == 0 {
 		return nil, errors.New("no provider credentials configured: set at least one of " +
-			"COSTLANE_OPENAI_API_KEY or COSTLANE_ANTHROPIC_API_KEY")
+			"COSTLANE_OPENAI_API_KEY, COSTLANE_ANTHROPIC_API_KEY or " +
+			"COSTLANE_GOOGLE_API_KEY")
 	}
 
 	router := provider.NewRouter(providers...)
