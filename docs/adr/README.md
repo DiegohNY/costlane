@@ -1,6 +1,6 @@
 # Architecture decision records
 
-Seven decisions in this project reversed an earlier one. They are recorded
+Nine decisions in this project reversed an earlier one. They are recorded
 here because the reversal is the interesting part: the first answer was
 reasonable, something was learned, and the second answer is the one the code
 implements.
@@ -18,3 +18,4 @@ the [design document](../superpowers/specs/2026-09-09-costlane-design.md).
 | [0006](0006-partially-priced.md) | Record partially priced separately from unpriced | One `unpriced` boolean |
 | [0007](0007-redaction-by-possession.md) | Redact by what this process holds, not by pattern | Pattern matching known key formats |
 | [0008](0008-per-provider-clean-close.md) | Each provider decides what a clean close looks like | Treating a missing `[DONE]` as truncation |
+| [0009](0009-sourced-reasoning-levels-or-refusal.md) | Map a reasoning level from a sourced table, or refuse it | Dropping `reasoning_effort`, and a numeric thinking budget |

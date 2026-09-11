@@ -116,7 +116,10 @@ still arrives intact.
 **Parameters with no equivalent are refused, not dropped.** Asking Anthropic
 for `logprobs`, or Gemini for `seed`, returns 400 naming the parameter. A
 client that receives a response cannot tell a silently discarded field from one
-the model ignored, so costlane does not create that ambiguity.
+the model ignored, so costlane does not create that ambiguity. The same rule
+governs *values*: `reasoning_effort` is translated into each provider's own
+thinking control from a table with a source per row, and a level that model
+does not document is refused with the levels it does have.
 
 **`max_tokens` is injected for Anthropic only.** The Messages API rejects a
 request without it, so costlane supplies `COSTLANE_DEFAULT_MAX_TOKENS` (4096 by
@@ -182,11 +185,16 @@ Stated plainly, because finding them yourself would be worse.
 - **Token counting is verified against a live API for Gemini only**, streaming
   and not, with Google's own telemetry agreeing to the token. Everything else
   is tested against a fake provider that reproduces each dialect.
-- **costlane cannot ask Gemini to stop thinking.** There is no path from the
-  OpenAI dialect to `thinkingConfig`, so a caller gets the model's default
-  thinking budget and is billed for it — and Google bills thinking as output.
-  A one-word answer measured 173 output tokens, of which 172 were thought
-  ([#24](https://github.com/DiegohNY/costlane/issues/24)).
+- **Gemini can be asked to think less, never to stop.** `reasoning_effort`
+  now reaches Gemini as `thinkingConfig.thinkingLevel` and Anthropic as
+  `output_config.effort`, from a table with a source per row. But Google
+  states that reasoning cannot be turned off for Gemini 3 models, so
+  `reasoning_effort: none` is refused by name rather than accepted and
+  ignored — as is `minimal` on `gemini-3.8-flash`, which that model rejects
+  and for which Google publishes no substitute. Thinking is still billed as
+  output: a one-word answer measured 173 output tokens, of which 172 were
+  thought ([#24](https://github.com/DiegohNY/costlane/issues/24),
+  [ADR 0009](docs/adr/0009-sourced-reasoning-levels-or-refusal.md)).
 - **Vertex AI and Bedrock are not supported.** Google means the Gemini API with
   an API key. Vertex needs a different auth flow and a different URL shape, and
   neither is seeded or tested.
@@ -315,7 +323,7 @@ refusal:      UPDATE key_budgets → SELECT vk.revoked_at, ...
 
 - [Design document](docs/superpowers/specs/2026-09-09-costlane-design.md) —
   architecture, streaming model, budget concurrency, pricing, API.
-- [Architecture decision records](docs/adr/) — the seven decisions that
+- [Architecture decision records](docs/adr/) — the nine decisions that
   reversed an earlier one, and why.
 - [Provider verification](docs/provider-verification.md) — what was checked
   against live APIs, with request ids.
