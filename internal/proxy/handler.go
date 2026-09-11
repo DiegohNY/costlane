@@ -292,9 +292,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	settled = true
-	if _, err := h.opts.DB.Settle(r.Context(), store.SettleInput{
+	settleOut, err := h.opts.DB.Settle(r.Context(), store.SettleInput{
 		ReservationID: res.ReservationID, ActualUSD: cost,
-	}); err != nil && h.opts.Logger != nil {
+	})
+	if err != nil && h.opts.Logger != nil {
 		h.opts.Logger.Error("settling failed", "error", err, "request_id", requestID)
 	}
 
@@ -309,7 +310,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		requestBody: body, responseBody: out.Body,
 	})
 
-	h.writeResponse(r.Context(), w, out, cost, costResult, res.KeyID)
+	h.writeResponse(w, out, cost, costResult, settleOut.RemainingUSD)
 
 	if h.opts.Metrics != nil {
 		h.opts.Metrics.RequestCompleted(servedModel, upstream.Name(), "200", time.Since(started))
@@ -463,9 +464,17 @@ func (h *Handler) settleFailure(r *http.Request, reservationID uuid.UUID) {
 	}
 }
 
-func (h *Handler) writeResponse(ctx context.Context, w http.ResponseWriter,
+// writeResponse answers a completed call.
+//
+// The remaining budget comes from the settle that has just run rather than
+// from a read of its own: the settle updated that row one statement earlier,
+// so asking the database again returned a figure already in hand. A settle
+// that applied nothing reports nil, and the header is then omitted — the
+// request is in a state where the figure is not this settle's to state, and
+// a stale number would be worse than a missing one.
+func (h *Handler) writeResponse(w http.ResponseWriter,
 	out *provider.Response, cost decimal.Decimal, result pricing.Result,
-	keyID uuid.UUID) {
+	remaining *decimal.Decimal) {
 	if !result.Unpriced {
 		w.Header().Set(HeaderCostUSD, cost.String())
 	}
@@ -474,22 +483,14 @@ func (h *Handler) writeResponse(ctx context.Context, w http.ResponseWriter,
 		// was applied rather than left to wonder why a response stopped.
 		w.Header().Set(HeaderInjectedMaxTokens, fmt.Sprintf("%d", out.InjectedMaxTokens))
 	}
-	if remaining, ok := h.remainingBudget(ctx, keyID); ok {
-		w.Header().Set(HeaderBudgetRemaining, remaining)
+	if remaining != nil {
+		w.Header().Set(HeaderBudgetRemaining, remaining.String())
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(out.StatusCode)
 	_, _ = w.Write(out.Body)
-}
-
-func (h *Handler) remainingBudget(ctx context.Context, keyID uuid.UUID) (string, bool) {
-	remaining, err := h.opts.DB.RemainingBudget(ctx, keyID)
-	if err != nil || remaining == nil {
-		return "", false
-	}
-	return remaining.String(), true
 }
 
 // writeUpstreamError answers a provider failure.

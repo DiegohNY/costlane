@@ -152,37 +152,42 @@ same date: `low`, `medium` and `high` map by name on `claude-fable-5-1`,
 
 ## W2 — Budget remaining from the settle's `RETURNING` (#14)
 
-**Estimate: 1 day.** Unchanged from the v0.2 plan, where it was V3.
+**Estimate was 1 day.** Done, except the benchmark re-run, which needs Docker.
 
 Goal: one fewer synchronous statement on the happy path.
 
-The trace in `internal/proxy/queries_test.go` shows a `SELECT` after the settle
-whose only job is to fill `X-Costlane-Budget-Remaining-Usd`, reading the row
-the settle updated one statement earlier.
+The trace in `internal/proxy/queries_test.go` showed a `SELECT` after the
+settle whose only job was to fill `X-Costlane-Budget-Remaining-Usd`, reading
+the row the settle had updated one statement earlier.
 
-- [ ] `RETURNING limit_usd, spent_usd, reserved_usd` on the settle's second
-      `UPDATE`; the remaining figure lands in `SettleOutput`
-- [ ] The non-streaming path fills the header from it
-- [ ] The streaming path settles too, and its header handling moves with it —
-      though note that a streamed response carries no cost header at all,
-      because the cost is not known until the stream ends and the headers left
-      before it began
-- [ ] Decide and test the `Applied: false` case: a retried settle, or one the
-      reaper beat, has no row to return from. Omitting the header is
-      defensible — the request is in a state where the figure is not the
-      settle's to report — but it must be a decision with a test
-- [ ] `RemainingBudget` stays for the read API, which still needs it
-- [ ] TEST: `queries_test.go` asserts four statements on the happy path rather
-      than five. That test exists to make an addition to the path deliberate;
-      a removal is recorded the same way
+- [x] `RETURNING` on the settle's second `UPDATE`; the remaining figure lands
+      in `SettleOutput`. It returns the computed remainder rather than the
+      three columns, because that is the figure the header wants and the
+      subtraction belongs where the NULL limit is handled
+- [x] The non-streaming path fills the header from it
+- [x] The streaming path settles too, and its header handling moves with it —
+      which turned out to be nothing to move: a streamed response carries
+      neither a cost nor a remaining header, because both are known only once
+      the stream has ended and the headers left before it began. That is now
+      a test rather than an accident
+- [x] The `Applied: false` case is decided and tested. A settle that applied
+      nothing returns no figure, and the header is omitted. It did not write
+      the budget row, so it cannot speak for it, and a number read from
+      another transaction's work would be presented as this request's own
+- [x] ~~`RemainingBudget` stays for the read API~~ **It does not.** The read
+      API answers through `BudgetStatusFor`, which has its own query; the
+      proxy's response header was `RemainingBudget`'s only caller. It is
+      deleted rather than left behind as a second way to ask the same
+      question
+- [x] TEST: `queries_test.go` asserts no `SELECT` on the happy path, and five
+      statements in this harness — the four that do the work plus the usage
+      `INSERT` that production hands to a buffer. That test exists to make an
+      addition to the path deliberate; a removal is recorded the same way
 - [ ] Re-run the overhead benchmarks and update the README figures if the
-      delta is real rather than noise
-
-**Why 1 day.** The change is small and the edge case is the whole cost. A
-settle that returns nothing has to leave the header in a defined state on both
-paths, which is two code paths and four tests.
-
----
+      delta is real rather than noise. **Not run: the benchmarks need Docker,
+      which this machine does not have.** The README now says that its
+      figures were measured with the extra read still in place, so nothing
+      there overstates what was removed.
 
 ## Not in v0.2.2
 

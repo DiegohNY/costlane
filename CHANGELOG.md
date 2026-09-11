@@ -26,6 +26,19 @@ touched; this tells you what changed for you.
 
 ### Changed
 
+- **One fewer statement on the happy path.** The remaining budget in
+  `X-Costlane-Budget-Remaining-Usd` came from a `SELECT` that read the row the
+  settle had updated one statement earlier. The settle's own `UPDATE` now
+  returns it, so a successful request issues four statements instead of five,
+  and the figure in the header is the one that statement wrote rather than a
+  later re-read of it.
+
+  A settle that applied nothing — a retried settle, or one the reaper beat —
+  returns no figure, and the header is then omitted rather than filled from
+  another transaction's work. `RemainingBudget` is gone from the store; the
+  read API answers this question through `BudgetStatusFor`, which is
+  unchanged.
+
 - **An unmappable reasoning level is a 400, not a quiet default.**
   `reasoning_effort: none` is refused on both seeded Gemini models, because
   Google states that reasoning cannot be turned off for Gemini 3 models; so

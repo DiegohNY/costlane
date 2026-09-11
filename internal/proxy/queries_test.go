@@ -133,11 +133,24 @@ func TestOnlyTheReserveRunsBeforeTheProviderCall(t *testing.T) {
 			selects++
 		}
 	}
-	// One SELECT: the remaining budget for the response header, after the
-	// provider has answered. A second one would mean a lookup crept back in.
-	if selects > 1 {
-		t.Errorf("the happy path runs %d SELECTs, want at most 1 (the remaining "+
-			"budget read for the response header): %v", selects, statements)
+	// No SELECT at all. The remaining-budget read used to sit here, after
+	// the provider answered, to fill a response header from the row the
+	// settle had updated one statement earlier; the settle now returns that
+	// figure. A SELECT reappearing here is a round trip that came back.
+	if selects != 0 {
+		t.Errorf("the happy path runs %d SELECTs, want none — the remaining "+
+			"budget comes back from the settle's own UPDATE: %v",
+			selects, statements)
+	}
+
+	// Four statements do the work — the reserve's UPDATE and INSERT, and the
+	// settle's two UPDATEs — plus the usage INSERT, which exists here only
+	// because this harness has no buffer in front of it. Production hands
+	// that one to a bounded buffer and it leaves the request path entirely.
+	if len(statements) != 5 {
+		t.Errorf("the happy path runs %d statements, want 5 (reserve UPDATE, "+
+			"reservation INSERT, settle UPDATE, budget UPDATE, and the usage "+
+			"INSERT this harness writes inline): %v", len(statements), statements)
 	}
 }
 
