@@ -3,7 +3,46 @@
 Written by hand. A list generated from commit subjects tells you what was
 touched; this tells you what changed for you.
 
+## v0.2.1 — 2026-09-11
+
+### Fixed
+
+- **Gemini models were not routable from the binary.** `buildRouter` in
+  `cmd/costlane` registered OpenAI and Anthropic and never constructed a
+  Google provider. Configuration read `COSTLANE_GOOGLE_API_KEY`, the redactor
+  scrubbed it, the README documented it, and the price seed mapped every
+  Gemini model to a provider named `google` that did not exist in the router —
+  so every Gemini request answered 404, and a deployment with only a Google
+  credential refused to start with a message that did not mention Google.
+
+  **This was live in v0.1.0 and v0.2.0.** If you configured Gemini on either,
+  it never worked. v0.2.0's headline feature, Gemini streaming, was reachable
+  from the library and from the tests but not from the binary.
+
+  Nothing caught it because nothing crossed that seam: the adapters, the
+  streaming tests and the live provider verification all construct a provider
+  directly, and the one end-to-end test that went through `buildRouter` asked
+  for an OpenAI model. There are now three tests on `buildRouter` itself, and
+  two checks that would have caught it at boot without calling any provider —
+  `/v1/models` must list a model for every configured provider, in the release
+  smoke test and again in the compose quickstart, which also streams a real
+  Gemini request end to end.
+
+- **The release smoke test never started the image.** It passed no provider
+  credential, so the gateway refused to boot and the job failed for a reason
+  unrelated to the image. It now supplies three fake keys, which are never
+  used: listing models reads the price table and the router and talks to
+  nobody.
+
+  The gate itself behaved correctly throughout — `:latest` stayed on v0.1.0
+  rather than moving to an image that had not passed its own boot check.
+
 ## v0.2.0 — 2026-09-11
+
+> **Known issue, fixed in v0.2.1: Gemini models are not routable from the
+> binary in this release.** The streaming adapter below is real and tested,
+> but `cmd/costlane` never registered a Google provider, so every Gemini
+> request answered 404. Use v0.2.1.
 
 ### Added
 

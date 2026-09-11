@@ -133,7 +133,9 @@ against four thousand — does not survive a thinking model, which produced
 
 ## V3 — Budget remaining from the settle's RETURNING (#14)
 
-**Estimate: 1 day.**
+**Estimate: 1 day. Moved to v0.2.2**, behind the v0.2.1 fix for Gemini
+routing: a database round trip nobody can see waits behind a provider nobody
+could reach.
 
 Goal: one fewer synchronous statement on the happy path.
 

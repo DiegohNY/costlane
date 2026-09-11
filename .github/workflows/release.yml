@@ -113,6 +113,9 @@ jobs:
             -e COSTLANE_DATABASE_URL="postgres://costlane:costlane@localhost:5432/costlane?sslmode=disable" \
             -e COSTLANE_MASTER_KEY="smoke-test-master-key-not-a-real-credential" \
             -e COSTLANE_MIGRATE_ON_BOOT=true \
+            -e COSTLANE_OPENAI_API_KEY="smoke-test-not-a-real-key" \
+            -e COSTLANE_ANTHROPIC_API_KEY="smoke-test-not-a-real-key" \
+            -e COSTLANE_GOOGLE_API_KEY="smoke-test-not-a-real-key" \
             "$IMAGE@$DIGEST"
         env:
           DIGEST: ${{ needs.image.outputs.digest }}
@@ -140,6 +143,32 @@ jobs:
             exit 1
           fi
           echo "version $got"
+
+      # The check that would have caught v0.2.0's defect at boot, without
+      # calling a provider. /v1/models lists only models whose provider was
+      # actually registered, so a provider missing from the wiring is a
+      # provider missing from this list. Gemini was absent from the binary for
+      # two releases and nothing noticed, because nothing asked.
+      #
+      # The credentials above are fake and are never used: listing models reads
+      # the price table and the router, and talks to nobody.
+      - name: every configured provider is routable
+        run: |
+          key=$(curl -fsS localhost:8080/admin/keys \
+            -H "Authorization: Bearer smoke-test-master-key-not-a-real-credential" \
+            -H "Content-Type: application/json" \
+            -d '{"label":"smoke"}' | jq -r .key)
+          curl -fsS localhost:8080/v1/models -H "Authorization: Bearer $key" > models.json
+          jq -r '.data[].owned_by' models.json | sort -u | tee owners.txt
+          for p in openai anthropic google; do
+            if ! grep -qx "$p" owners.txt; then
+              echo "/v1/models lists no model owned by $p."
+              echo "That provider is configured but not wired into the router,"
+              echo "so every model it serves would answer 404."
+              cat models.json
+              exit 1
+            fi
+          done
 
       - name: show the logs when something failed
         if: failure()
